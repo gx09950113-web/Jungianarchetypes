@@ -4,16 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>初步結果｜榮格八維自測</title>
-  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="./assets/css/style.css" />
 </head>
 <body>
+  <!-- render-result.js 會把圖表與文案渲染到這裡 -->
   <div id="result-root"></div>
 
-  <!-- 請放本地檔：docs/assets/js/vendor/chart.umd.js -->
-  <script src="assets/js/vendor/chart.umd.js"></script>
-  <!-- Pako 作為 gunzip 回退，確保 __getWeights() 能解碼 -->
-  <script src="assets/js/vendor/pako.min.js"></script>
-  <!-- 你的 bundle（內含 render-result.js 自動初始化與繪圖/敘述） -->
-  <script defer src="assets/js/app.min.js"></script>
+  <!-- 先載 Chart.js（本地檔） -->
+  <script src="./assets/js/vendor/chart.umd.js"></script>
+  <!-- 再載 pako（gunzip 回退，確保權重解碼可用） -->
+  <script src="./assets/js/vendor/pako.min.js"></script>
+  <!-- 最後載 bundle（不要加 type="module"/defer） -->
+  <script src="./assets/js/app.min.js"></script>
 </body>
 </html>
