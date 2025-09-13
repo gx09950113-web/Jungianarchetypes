@@ -1,5 +1,5 @@
 // src/ui/render-quiz.js
-// Quiz page UI glue: render question, 5-point scale, progress & navigation.
+// Quiz page UI glue: render question, A/B fixed cards, centered 5-point scale, progress & navigation.
 // Works with Router + QuizEngine.
 
 import { Router } from '../core/router.js';
@@ -8,8 +8,8 @@ import { QuizEngine } from '../core/quiz-engine.js';
 const IDS = {
   root: 'quiz-root',
   title: 'qTitle',
-  text: 'qText',
-  answers: 'answers',
+  text: 'qText',       // 我們會把題幹 + A/B 固定卡片都塞進這裡（innerHTML）
+  answers: 'answers',  // 下方置中 5 點量表（可點）
   navPrev: 'btnPrev',
   navNext: 'btnNext',
   navClear: 'btnClear',
@@ -52,6 +52,9 @@ function setHidden(el, hidden) {
   if (!el) return;
   el.style.display = hidden ? 'none' : '';
 }
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
 
 // ---------- UI builders ----------
 function buildSkeleton() {
@@ -65,7 +68,7 @@ function buildSkeleton() {
   // Question block
   const qBlock = h('div', { class: 'quiz-qblock' }, [
     h('div', { id: IDS.text, class: 'question', text: '' }),
-    h('div', { id: IDS.answers, class: 'answers' }),
+    h('div', { id: IDS.answers, class: 'answers', role: 'group', 'aria-label': '五點量表' }),
   ]);
 
   // Nav buttons
@@ -84,7 +87,7 @@ function buildSkeleton() {
   ]);
 
   // Advanced panel (after basic complete)
-  const advPanel = h('div', { id: IDS.advPanel, class: 'quiz-adv-panel' }, [
+  const advPanel = h('div', { id: IDS.advPanel, class: 'quiz-adv-panel', style: 'display:none' }, [
     h('h3', { text: '想要更完整的 56 題結果嗎？' }),
     h('p', { class: 'muted', text: '你可以選擇接續進階題組，或直接查看 32 題結果。' }),
     h('div', { class: 'adv-actions' }, [
@@ -97,27 +100,54 @@ function buildSkeleton() {
 
   // Mount
   root.replaceChildren(header, qBlock, nav, progress, advPanel);
-
-  // If you already have these nodes in quiz.html, we won't duplicate—ensureEl only creates if missing.
   return root;
 }
 
 function renderScale(selectedValue) {
-  // 5-point Likert: 1..5（也接受 0..4），我們畫 1..5，提交時會轉為 0..4
+  // 5-point Likert, 顯示 A/B 語意，並置中排列（CSS 已處理 .scale-wrap）
   const wrap = $(IDS.answers);
   if (!wrap) return;
 
-  const labels = ['非常不同意', '不同意', '中立', '同意', '非常同意'];
+  const labels = ['非常同意A','較同意A','中立','較同意B','非常同意B'];
   wrap.innerHTML = '';
-  for (let i = 1; i <= 5; i++) {
+  const scaleWrap = h('div', { class: 'scale-wrap' });
+
+  for (let i = 0; i < 5; i++) {
+    const val = [-2, -1, 0, 1, 2][i]; // 內部記錄統一為 -2..2，交給引擎正規化
     const btn = h('button', {
-      class: `scale-btn${selectedValue === (i - 1) ? ' selected' : ''}`,
-      'data-answer': String(i),
-      text: `${i}｜${labels[i - 1]}`,
-      onclick: () => onAnswer(i),
-    });
-    wrap.appendChild(btn);
+      class: `scale-btn${selectedValue === (val + 2) ? ' selected' : ''}`, // selectedValue 目前多半存 0..4
+      'data-val': String(val),
+    }, [
+      h('span', { class: 'k', text: String(i + 1) }),
+      h('span', { class: 't', text: labels[i] }),
+    ]);
+    btn.addEventListener('click', () => onAnswer(val));
+    scaleWrap.appendChild(btn);
   }
+  wrap.appendChild(scaleWrap);
+}
+
+function buildABCardsHTML(item) {
+  // 優先讀 items 的典型欄位：stem + options[0]/[1]
+  const stem = item?.stem ?? item?.text ?? item?.title ?? '';
+  // 支援多種欄位命名：options/opts/choices、或 A/B
+  const optA = item?.options?.[0] ?? item?.opts?.[0] ?? item?.choices?.[0] ?? item?.A ?? item?.a ?? '選項 A';
+  const optB = item?.options?.[1] ?? item?.opts?.[1] ?? item?.choices?.[1] ?? item?.B ?? item?.b ?? '選項 B';
+
+  return `
+    <div class="qid">第 ${_state ? (_state.step + 1) : '?'} 題 / 共 ${_state?.total ?? '?' } 題</div>
+    <div class="stem">${escapeHtml(stem)}</div>
+    <div class="pair-cards" aria-hidden="true">
+      <div class="pair-card A">
+        <span class="title">A</span>
+        <p>${escapeHtml(optA)}</p>
+      </div>
+      <div class="pair-card B">
+        <span class="title">B</span>
+        <p>${escapeHtml(optB)}</p>
+      </div>
+    </div>
+  `;
 }
 
 function renderQuestion() {
@@ -137,30 +167,36 @@ function renderQuestion() {
     st.mode === 'advB'  ? '進階 B 組' :
     st.mode === 'advC'  ? '進階 C 組' : st.mode;
 
-  title && (title.textContent = `榮格八維自測｜${modeName}`);
+  if (title) title.textContent = `榮格八維自測｜${modeName}`;
 
   // Progress
   const progText = $(IDS.progressText);
   const progBar = $(IDS.progressBar);
   const pct = Math.round(st.progress * 100);
-  progText && (progText.textContent = `${Math.min(st.step + 1, st.total)} / ${st.total}（${pct}%）`);
-  if (progBar) progBar.style.width = `${pct}%`;
+  if (progText) progText.textContent = `${Math.min(st.step + 1, st.total)} / ${st.total}（${pct}%）`;
+  if (progBar)  progBar.style.width = `${pct}%`;
 
   // Done?
   const advPanel = $(IDS.advPanel);
   if (st.done) {
-    // 若是 basic 完成 → 顯示進階選單；否則導向結果
     if (st.mode === 'basic') {
+      // 顯示進階選單
       setHidden(advPanel, false);
       setHidden($(IDS.answers), true);
-      setHidden($(IDS.text), false);
-      qText && (qText.textContent = '你已完成 32 題。要不要接續進階，取得更細緻的 56 題分析？');
-      btnPrev && (btnPrev.disabled = true);
-      btnNext && (btnNext.disabled = true);
-      btnClear && (btnClear.disabled = true);
+      if (qText) {
+        qText.innerHTML = `
+          <div class="stem">你已完成 32 題。要不要接續進階，取得更細緻的 56 題分析？</div>
+        `;
+      }
+      if (btnPrev) btnPrev.disabled = true;
+      if (btnNext) btnNext.disabled = true;
+      if (btnClear) btnClear.disabled = true;
+
+      // 滑到面板，避免行動裝置底部工具列卡住
+      try { advPanel.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
       return;
     } else {
-      // 進階完成 → 直接導向結果_advanced
+      // 進階完成 → 直接導向進階結果
       Router.go('result_advanced', { sid: st.sessionId, mode: st.mode });
       return;
     }
@@ -169,28 +205,30 @@ function renderQuestion() {
     setHidden($(IDS.answers), false);
   }
 
-  // Render current question
+  // Render current question：題幹 + A/B 卡片 + 置中量表
   const item = st.current;
-  qText && (qText.textContent = item?.text || item?.title || `(第 ${st.step + 1} 題)`);
+  if (qText) qText.innerHTML = buildABCardsHTML(item);
 
-  // Selected value (0..4)
-  const sel = st.answers?.[st.step];
-  renderScale(sel);
+  // selectedValue 目前多半以 0..4 儲存（由 QuizEngine 正規化）
+  const sel04 = st.answers?.[st.step]; // 0..4 或 null
+  renderScale(sel04);
 
   // Nav buttons state
-  btnPrev && (btnPrev.disabled = st.step <= 0);
-  // 下一題不強制答案，但可依需求改成：btnNext.disabled = (sel == null);
-  btnNext && (btnNext.disabled = false);
-  btnClear && (btnClear.disabled = (sel == null));
+  if (btnPrev)  btnPrev.disabled  = (st.step <= 0);
+  if (btnNext)  btnNext.disabled  = false; // 若想強制作答才可下一題，可改為 (sel04 == null)
+  if (btnClear) btnClear.disabled = (sel04 == null);
+
+  // 行動裝置小優化：切換題目時微調捲動，避免底部工具列卡住無法上滑
+  try { window.scrollBy({ top: 16, behavior: 'smooth' }); } catch {}
 }
 
 // ---------- Event handlers ----------
-function onAnswer(v /* 1..5 or 0..4 */) {
-  // 交給 QuizEngine 轉 0..4 與寫 session
+function onAnswer(v /* internal -2..2 */) {
+  // QuizEngine 會把 -2..2 / 1..5 / 0..4 正規化為 0..4 儲存
   _state = QuizEngine.answer(Number(v));
   renderQuestion();
 
-  // 完成即導向
+  // 完成即導向或顯示面板
   if (_state.done) {
     if (_state.mode === 'basic') {
       renderQuestion(); // 顯示進階面板
@@ -210,6 +248,7 @@ function bindNav() {
     const idx = Math.max(0, st.step - 1);
     _state = QuizEngine.go(idx);
     renderQuestion();
+    try { window.scrollBy({ top: -24, behavior: 'smooth' }); } catch {}
   });
 
   btnNext?.addEventListener('click', () => {
@@ -217,8 +256,8 @@ function bindNav() {
     if (st.step < st.total) {
       _state = QuizEngine.go(st.step + 1);
       renderQuestion();
+      try { window.scrollBy({ top: 24, behavior: 'smooth' }); } catch {}
     } else {
-      // 結束節點（在 basic 完成時已被處理）
       if (st.mode !== 'basic') Router.go('result_advanced', { sid: st.sessionId, mode: st.mode });
     }
   });
@@ -227,7 +266,6 @@ function bindNav() {
     const st = QuizEngine.getState();
     const ans = st.answers.slice();
     ans[st.step] = null;
-    // 直接呼叫 Router.updateSession 更新答案
     _state = Router.updateSession(st.sessionId, { answers: ans });
     renderQuestion();
   });
@@ -264,19 +302,22 @@ function bindAdvancedPanel() {
 }
 
 function bindKeyboard() {
-  // 1..5 作答、0..4 也接受；← → 導航；Backspace/R 清除
+  // 1..5 → 對應 -2..2；0..4 也接受；← → 導航；Backspace/R 清除
   document.addEventListener('keydown', (e) => {
     const st = QuizEngine.getState();
     if (st.done) return;
 
     const k = e.key;
     if (/^[1-5]$/.test(k)) {
-      onAnswer(Number(k));
+      const map = { '1': -2, '2': -1, '3': 0, '4': 1, '5': 2 };
+      onAnswer(map[k]);
       e.preventDefault();
       return;
     }
     if (/^[0-4]$/.test(k)) {
-      onAnswer(Number(k)); // 0..4 也行，會由引擎正規化
+      // 若按 0..4，也允許：轉成 -2..2
+      const val = Number(k) - 2;
+      onAnswer(val);
       e.preventDefault();
       return;
     }
@@ -308,7 +349,6 @@ function scrollToTop() {
 
 // ---------- Init ----------
 export async function initQuizUI() {
-  // 確保有基本骨架與事件綁定
   buildSkeleton();
   bindNav();
   bindAdvancedPanel();
@@ -317,7 +357,7 @@ export async function initQuizUI() {
   // 啟用離開提醒
   Router.setLeaveGuard(true);
 
-  // 讀取 URL 參數並啟動引擎
+  // 啟動引擎
   const { query } = Router.current();
   const mode = query.mode || 'basic';
   await QuizEngine.bootstrap({ mode, sid: query.sid });
@@ -326,17 +366,11 @@ export async function initQuizUI() {
   renderQuestion();
 }
 
-// 自動初始化（若頁面直接引入此模組且沒有其他入口）
+// 自動初始化
 if (document.currentScript && document.readyState !== 'loading') {
-  // 若你的 app.js 會主動呼叫 initQuizUI()，可以刪除這段自動啟動
-  // 這段僅作為保險，避免忘記初始化
-  initQuizUI().catch((err) => {
-    console.error('[quiz] init failed', err);
-  });
+  initQuizUI().catch((err) => { console.error('[quiz] init failed', err); });
 } else {
   document.addEventListener('DOMContentLoaded', () => {
-    initQuizUI().catch((err) => {
-      console.error('[quiz] init failed', err);
-    });
+    initQuizUI().catch((err) => { console.error('[quiz] init failed', err); });
   });
 }
