@@ -1,246 +1,373 @@
 // src/ui/render-result.js
-// Result pages glue for result_basic.html & result_advanced.html
-// Rebuild item order with same seed, pair with answers, run scoring, render report & charts.
+// Result page renderer: build charts + narrative
+// Requirements on page:
+// - <div id="result-root"></div>
+// - Chart.js loaded globally as window.Chart
+// - Scorer, Report modules available (bundled in app.min.js)
+// - pako is loaded before app.min.js so weights can decode
 
-import { Router } from '../core/router.js';
 import { Scorer } from '../core/scorer.js';
 import { Report } from '../core/report.js';
-import { Charts } from '../core/charts.js';
 
-// ---------- Config (mirror quiz-engine) ----------
-const DATA_BASE = 'data';
-const FILES = {
-  basic: 'items_public_32.json',
-  advA:  'items_public_adv_A.json',
-  advB:  'items_public_adv_B.json',
-  advC:  'items_public_adv_C.json',
-};
+/* ---------------- small utils ---------------- */
+const NS = 'jung8v:'; // must match your Store namespace
+const $ = (sel, root = document) => root.querySelector(sel);
 
-// ---------- Minimal PRNG & shuffle (same as quiz-engine) ----------
-function makePRNG(seedStr) {
-  function hash32(str, seed = 2166136261 >>> 0) {
-    let h = seed;
-    for (let i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619);
+function readLS(key, def = null) {
+  try {
+    const raw = localStorage.getItem(NS + key);
+    return raw ? JSON.parse(raw) : def;
+  } catch {
+    return def;
+  }
+}
+function nonNullCount(arr) {
+  if (!Array.isArray(arr)) return 0;
+  return arr.filter(v => v !== null && v !== undefined).length;
+}
+function fmtPct(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/* ------------- charts ------------- */
+function drawRadar(canvas, labels, values) {
+  if (!window.Chart || !canvas?.getContext) return;
+  const ctx = canvas.getContext('2d');
+  new Chart(ctx, {
+    type: 'radar',
+    data: {
+      labels,
+      datasets: [{ label: '八維強度（%）', data: values }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        r: { beginAtZero: true, suggestedMax: 100, ticks: { stepSize: 20 } }
+      }
     }
-    return h >>> 0;
-  }
-  const s1 = hash32(seedStr, 0x9E3779B9);
-  const s2 = hash32(seedStr, 0x85EBCA77);
-  const s3 = hash32(seedStr, 0xC2B2AE3D);
-  const s4 = hash32(seedStr, 0x27D4EB2F);
-  let a = s1 | 1, b = s2 | 1, c = s3 | 1, d = s4 | 1;
-
-  return function next() {
-    const t = a ^ (a << 11);
-    a = b; b = c; c = d;
-    d = (d ^ (d >>> 19) ^ (t ^ (t >>> 8))) >>> 0;
-    return (d >>> 0) / 0x100000000;
-  };
-}
-function shuffleSeeded(arr, seed) {
-  const prng = makePRNG(seed);
-  const out = arr.slice();
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(prng() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
-
-// ---------- Fetch helpers ----------
-async function fetchJSON(rel) {
-  const url = `${DATA_BASE}/${rel}`;
-  const res = await fetch(url, { cache: 'no-cache' });
-  if (!res.ok) throw new Error(`Load failed: ${url} (${res.status})`);
-  return res.json();
-}
-async function loadBank(mode) {
-  const file =
-    mode === 'basic' ? FILES.basic :
-    mode === 'advA'  ? FILES.advA  :
-    mode === 'advB'  ? FILES.advB  :
-    mode === 'advC'  ? FILES.advC  : null;
-  if (!file) throw new Error(`Unknown mode: ${mode}`);
-  const bank = await fetchJSON(file);
-  const items = Array.isArray(bank) ? bank : Array.isArray(bank.items) ? bank.items : [];
-  return items.map((it, i) => {
-    if (typeof it.id === 'undefined' || it.id === null) return { ...it, id: `q${i + 1}` };
-    return it;
   });
 }
 
-// ---------- DOM helpers & skeleton ----------
-function $(sel) { return document.querySelector(sel); }
-function ensure(id, tag = 'div', cls = '') {
-  let el = document.getElementById(id);
-  if (!el) {
-    el = document.createElement(tag);
-    el.id = id;
-    if (cls) el.className = cls;
-    document.body.appendChild(el);
-  }
-  return el;
+function drawBars(canvas, labels, values) {
+  if (!window.Chart || !canvas?.getContext) return;
+  const ctx = canvas.getContext('2d');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ label: '八維強度（%）', data: values }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, suggestedMax: 100, ticks: { precision: 0 } } }
+    }
+  });
 }
 
-function buildSkeleton() {
-  const root = ensure('result-root', 'div', 'result-root');
-  const header = ensure('res-header', 'div', 'res-header');
-  const summary = ensure('summary', 'div', 'res-summary');
-  const charts = ensure('charts', 'div', 'res-charts');
-  const table = ensure('funcTable', 'div', 'res-table');
-  const narrative = ensure('typeNarrative', 'div', 'res-narrative');
-  const reco = ensure('reco', 'div', 'res-reco');
+/* ------------- combine advanced modes ------------- */
+/** 將多個 result.byFunction 以「使用題數」加權合併，回傳合併後的 byFunction 陣列（含 pct） */
+function combineByFunction(weightedList) {
+  // weightedList: [{ byFunction, used }, ...]
+  const totalW = weightedList.reduce((s, x) => s + (x.used || 0), 0) || 1e-9;
+  const n = 8;
+  const sumRaw = Array(n).fill(0);
+  const sumMax = Array(n).fill(0);
 
-  header.innerHTML = `
-    <h2>測驗結果</h2>
-    <div class="head-actions">
-      <button id="btnHome" class="btn">回首頁重測</button>
-      <button id="btnCopy" class="btn ghost">複製分享連結</button>
-      <button id="btnDLRadar" class="btn ghost">下載雷達圖</button>
-      <button id="btnDLBars" class="btn ghost">下載四軸圖</button>
-    </div>
-  `;
-  charts.innerHTML = `
-    <div class="chart-wrap">
-      <canvas id="radarChart" style="width:100%;height:360px;"></canvas>
-    </div>
-    <div class="chart-wrap">
-      <canvas id="axesChart" style="width:100%;height:240px;"></canvas>
-    </div>
-  `;
-
-  root.replaceChildren(header, summary, charts, table, narrative, reco);
-  return root;
-}
-
-// ---------- Build answers with same seed (basic-only or basic+adv) ----------
-async function rebuildAnswers(session) {
-  const seed = session.seed || String(Math.random()).slice(2);
-  const mode = session.mode || 'basic';
-  const answersArr = Array.isArray(session.answers) ? session.answers.slice() : [];
-
-  // 依結果頁型態決定需要的題庫：
-  // - result_basic.html：只評 basic（32 題）
-  // - result_advanced.html：評 basic + advX（56/40 題）
-  const pageFile = window.location.pathname.split('/').pop();
-  const isAdvancedPage = /result_advanced\.html$/i.test(pageFile);
-
-  // 1) 先載 basic 並洗牌
-  const basic = await loadBank('basic');
-  const basicShuffled = shuffleSeeded(basic, seed);
-
-  // 2) 若是進階頁，再載對應 adv 並洗牌；串接
-  let items = basicShuffled;
-  if (isAdvancedPage) {
-    if (!['advA', 'advB', 'advC'].includes(mode)) {
-      // 若使用者直接開進階頁但 session 還是 basic，當作僅 basic
-      // 也可以選擇 redirect 回 basic 結果頁
-      console.warn('[result] advanced page but mode is basic; showing basic only.');
-    } else {
-      const adv = await loadBank(mode);
-      const advShuffled = shuffleSeeded(adv, seed);
-      // 與 quiz-engine.continueToAdvanced 一致：basic 在前，adv 接後
-      items = basicShuffled.concat(
-        advShuffled.map((it, i) => (typeof it.id === 'undefined' ? { ...it, id: `a${i + 1}` } : it))
-      );
+  for (const part of weightedList) {
+    const w = (part.used || 0) / totalW;
+    const bf = part.byFunction || [];
+    for (let i = 0; i < n; i++) {
+      const it = bf[i] || { raw: 0, max: 0 };
+      sumRaw[i] += (it.raw || 0) * w;
+      sumMax[i] += (it.max || 0) * w;
     }
   }
 
-  // 3) 以 items 順序對齊使用者 answers，組成 [{id, value}]
-  const pairs = items.map((it, i) => ({ id: String(it.id), value: answersArr[i] }));
-  return { mode: isAdvancedPage ? (['advA','advB','advC'].includes(mode) ? mode : 'basic') : 'basic', pairs };
+  return sumRaw.map((r, i) => {
+    const m = sumMax[i] || 1e-9;
+    const pct = Math.max(0, Math.min(1, r / m)) * 100;
+    // key/name/desc 交給呼叫端補（用 Scorer.getFuncMeta()）
+    return { idx: i, raw: r, max: m, pct };
+  });
 }
 
-// ---------- Main render ----------
-let _radar = null;
-let _bars = null;
+/** 依 byFunction + typesMap 粗略推斷類型（與 scorer 內部一致的邏輯簡化版） */
+function inferTypeFromByFunction(byFunction, typesMap) {
+  const sorted = [...byFunction].sort((a, b) => b.pct - a.pct);
+  const dom = sorted[0], aux = sorted[1], ter = sorted[2], inf = sorted[3];
+  let type = { code: 'Unknown', how: 'fallback' };
 
-async function render() {
-  buildSkeleton();
+  if (typesMap) {
+    const dm = typesMap.byPair || typesMap.pairs;
+    if (dm) {
+      const k1 = `${dom.idx}-${aux.idx}`, k2 = `${aux.idx}-${dom.idx}`;
+      if (dm[k1]) type = { ...dm[k1], how: 'byPair' };
+      else if (dm[k2]) type = { ...dm[k2], how: 'byPair' };
+    }
+    if (type.code === 'Unknown' && typesMap.byDominant) {
+      if (typesMap.byDominant[dom.idx]) type = { ...typesMap.byDominant[dom.idx], how: 'byDominant' };
+    }
+    if (type.code === 'Unknown' && Array.isArray(typesMap.rules)) {
+      for (const r of typesMap.rules) {
+        const okDom = r?.if?.dom === undefined || r.if.dom === dom.idx;
+        const okAux = r?.if?.aux === undefined || r.if.aux === aux.idx;
+        if (okDom && okAux) { type = { code: r.code, name: r.name, description: r.description, how: 'rules' }; break; }
+      }
+    }
+  }
+  return { type, top: { dominant: dom, auxiliary: aux, tertiary: ter, inferior: inf } };
+}
 
-  const info = Router.current();
-  const sess = info.session;
-  const pageFile = info.file;
-  const isAdvancedPage = /result_advanced\.html$/i.test(pageFile);
+/** 由 byFunction 推導四軸（用 scorer 的集合邏輯，需從 funcMeta 建 sets） */
+function axesFromByFunction(byFunction, funcMeta) {
+  const k2i = funcMeta.keyToIndex || {};
+  const idx = k => (k2i[k] ?? -1);
+  const set = (...xs) => new Set(xs.filter(i => i >= 0));
 
-  // 防呆：沒有 session 或答案
-  if (!sess || !Array.isArray(sess.answers) || sess.answers.length === 0) {
-    $('#summary').innerHTML = `
-      <div class="warn">
-        <p>找不到此次作答資料，或尚未完成作答。</p>
-        <p><a href="quiz.html">回到測驗頁</a> 繼續作答，或 <a href="index.html">回首頁</a> 重新開始。</p>
-      </div>`;
+  const Fe = idx('Fe'), Te = idx('Te'), Se = idx('Se'), Ne = idx('Ne');
+  const Fi = idx('Fi'), Ti = idx('Ti'), Si = idx('Si'), Ni = idx('Ni');
+
+  const EXTV = set(Fe, Te, Se, Ne);
+  const NSET = set(Ni, Ne);
+  const TSET = set(Ti, Te);
+  const JEXT = set(Fe, Te);
+  const PEXT = set(Se, Ne);
+
+  const agg = (set) => {
+    let s = 0, m = 0;
+    for (let i = 0; i < byFunction.length; i++) {
+      if (set.has(i)) { s += byFunction[i].raw; m += byFunction[i].max; }
+    }
+    const pct = m > 0 ? (s / m) : 0;
+    return { score: s, max: m, pct };
+  };
+
+  const EI = agg(EXTV);
+  const NS = agg(NSET);
+  const TF = agg(TSET);
+  const JPj = agg(JEXT);
+  const JPp = agg(PEXT);
+  const pctJ = (JPj.score) / (JPj.score + JPp.score || 1e-9);
+
+  return {
+    EI: { E: EI.pct, I: 1 - EI.pct, pctE: EI.pct },
+    NS: { N: NS.pct, S: 1 - NS.pct, pctN: NS.pct },
+    TF: { T: TF.pct, F: 1 - TF.pct, pctT: TF.pct },
+    JP: { J: pctJ, P: 1 - pctJ, pctJ },
+  };
+}
+
+/* ------------- render helpers ------------- */
+function buildSummaryHTML(summary) {
+  // 使用 Report.toHTML.summary，已含徽章 class（type-badge + 群組色）
+  return Report.toHTML.summary(summary);
+}
+function buildTableHTML(rows) {
+  return Report.toHTML.functionTable(rows);
+}
+function buildNarrativeHTML(nar) {
+  return Report.toHTML.typeNarrative(nar);
+}
+function buildRecoHTML(tips) {
+  return Report.toHTML.recommendations(tips);
+}
+
+function funcLabelsFromMeta(funcMeta) {
+  // 顯示短名（key 或 name），圖表用
+  return (funcMeta.list || []).map(x => x.key || x.name || `F${x.idx}`);
+}
+
+/* ------------- BASIC: result_basic.html ------------- */
+export async function renderBasicResult() {
+  const root = $('#result-root');
+  if (!root) return;
+
+  const basicAnswers = readLS('basicAnswers', null);
+  if (!basicAnswers) {
+    alert('找不到 32 題作答紀錄，請先完成測驗。');
+    location.href = './quiz.html?mode=basic';
     return;
   }
 
-  // 若有未完成答案（null），提示並僅以已作答的題計分（可改為直接跳回 quiz）
-  const hasNull = sess.answers.some(v => v === null || v === undefined);
-  if (hasNull) {
-    console.warn('[result] answers incomplete; scoring with answered items only.');
-  }
-
-  // 以相同 seed 重建題目 id，對齊答案
-  const rebuilt = await rebuildAnswers(sess);
-  const modeForScore = isAdvancedPage ? (['advA','advB','advC'].includes(rebuilt.mode) ? rebuilt.mode : 'basic') : 'basic';
-
-  // 初始化權重（依 mode 決定主權重集；進階結果會同時使用 basic + adv 的答案，但權重載入以 adv 集合作為主）
-  await Scorer.init(modeForScore);
-
-  // 計分
+  await Scorer.init('basic');
   const result = await Scorer.score({
-    mode: modeForScore,
-    answers: rebuilt.pairs, // [{id,value}]
+    mode: 'basic',
+    answers: basicAnswers, // 支援 [v,v,..] 或 [{id,value}]
   });
 
-  // 敘述
+  // 準備圖表資料
+  const funcMeta = Scorer.getFuncMeta();
+  const labels = funcLabelsFromMeta(funcMeta);
+  const values = result.byFunction.map(f => Math.round(f.pct));
+
+  // Report 段落
   const { summary, table, narrative, recos } = Report.buildAll(result);
-  $('#summary').innerHTML = Report.toHTML.summary(summary);
-  $('#funcTable').innerHTML = Report.toHTML.functionTable(table);
-  $('#typeNarrative').innerHTML = Report.toHTML.typeNarrative(narrative);
-  $('#reco').innerHTML = Report.toHTML.recommendations(recos);
 
-  // 圖表
-  Charts.theme({ mode: 'auto' });
-  _radar = Charts.renderRadar(result, '#radarChart', { title: '八功能雷達圖' });
-  _bars  = Charts.renderAxesBars(result, '#axesChart', { title: '四大軸傾向' });
+  root.innerHTML = `
+    <section class="res-header">
+      <h2>初步結果（32 題）</h2>
+      <div class="head-actions">
+        <a class="btn" href="./quiz.html?mode=basic">回顧作答</a>
+        <a class="btn primary" href="./quiz.html?mode=advanced">進入進階 56 題</a>
+        <a class="btn ghost" href="./index.html">回首頁</a>
+      </div>
+    </section>
 
-  // 功能按鈕
-  $('#btnHome')?.addEventListener('click', () => Router.go('home', {}));
-  $('#btnCopy')?.addEventListener('click', async () => {
-    try {
-      const url = new URL(window.location.href);
-      // 確保帶上 sid 與 mode
-      url.searchParams.set('sid', sess.sessionId);
-      url.searchParams.set('mode', sess.mode);
-      await navigator.clipboard.writeText(url.toString());
-      $('#btnCopy').textContent = '已複製連結 ✓';
-      setTimeout(() => ($('#btnCopy') && ($('#btnCopy').textContent = '複製分享連結')), 1500);
-    } catch (e) {
-      alert('複製失敗，請手動複製網址。');
-    }
-  });
-  $('#btnDLRadar')?.addEventListener('click', () => Charts.downloadPNG(_radar, 'functions_radar.png'));
-  $('#btnDLBars')?.addEventListener('click', () => Charts.downloadPNG(_bars, 'axes_bars.png'));
+    ${buildSummaryHTML(summary)}
+
+    <section class="res-charts">
+      <div class="chart-wrap">
+        <canvas id="radar8"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="bars8"></canvas>
+      </div>
+    </section>
+
+    <section class="res-table card">
+      ${buildTableHTML(table)}
+    </section>
+
+    <section class="res-narrative card">
+      ${buildNarrativeHTML(narrative)}
+    </section>
+
+    <section class="res-reco card">
+      ${buildRecoHTML(recos)}
+    </section>
+  `;
+
+  drawRadar($('#radar8'), labels, values);
+  drawBars($('#bars8'), labels, values);
 }
 
-// ---------- Auto init ----------
-export async function initResultUI() {
-  try {
-    await render();
-  } catch (err) {
-    console.error('[result] render failed', err);
-    const box = $('#summary') || document.body;
-    const div = document.createElement('div');
-    div.className = 'warn';
-    div.innerHTML = `<p>載入結果時發生錯誤：${err.message || err}</p><p><a href="index.html">回首頁</a></p>`;
-    box.appendChild(div);
+/* ------------- ADVANCED: result_advanced.html ------------- */
+export async function renderAdvancedResult() {
+  const root = $('#result-root');
+  if (!root) return;
+
+  const basicAnswers = readLS('basicAnswers', null);
+  const adv = readLS('advAnswers', null) || {};
+  const advA = Array.isArray(adv.A) ? adv.A : null;
+  const advB = Array.isArray(adv.B) ? adv.B : null;
+  const advC = Array.isArray(adv.C) ? adv.C : null;
+
+  if (!basicAnswers && !advA && !advB && !advC) {
+    alert('找不到任何作答紀錄。');
+    location.href = './index.html';
+    return;
   }
+
+  // 分別算四份（有哪份算哪份）
+  const parts = [];
+
+  if (basicAnswers) {
+    await Scorer.init('basic');
+    const r = await Scorer.score({ mode: 'basic', answers: basicAnswers });
+    parts.push({ tag: '32 題', result: r, used: r?.debug?.usedItems || nonNullCount(basicAnswers) });
+  }
+  if (advA) {
+    await Scorer.init('advA');
+    const r = await Scorer.score({ mode: 'advA', answers: advA });
+    parts.push({ tag: '進階 A', result: r, used: r?.debug?.usedItems || nonNullCount(advA) });
+  }
+  if (advB) {
+    await Scorer.init('advB');
+    const r = await Scorer.score({ mode: 'advB', answers: advB });
+    parts.push({ tag: '進階 B', result: r, used: r?.debug?.usedItems || nonNullCount(advB) });
+  }
+  if (advC) {
+    await Scorer.init('advC');
+    const r = await Scorer.score({ mode: 'advC', answers: advC });
+    parts.push({ tag: '進階 C', result: r, used: r?.debug?.usedItems || nonNullCount(advC) });
+  }
+
+  // 加權合併 byFunction
+  const weightedList = parts.map(p => ({ byFunction: p.result.byFunction, used: p.used }));
+  const mergedByFunc = combineByFunction(weightedList);
+
+  // 把 meta 補回（name/key）
+  const funcMeta = Scorer.getFuncMeta();
+  const labeledByFunc = mergedByFunc.map((f, i) => {
+    const meta = funcMeta.list?.[i] || { key: `f${i}`, name: `功能 ${i}`, desc: '' };
+    return { ...f, key: meta.key, name: meta.name, desc: meta.desc };
+  });
+
+  // 重新推斷 type 與軸線
+  const typeMap = Scorer.getTypeMap() || { byCode: {} };
+  const { type, top } = inferTypeFromByFunction(labeledByFunc, typeMap);
+  const axes = axesFromByFunction(labeledByFunc, funcMeta);
+
+  const mergedResult = {
+    mode: 'advanced-merged',
+    byFunction: labeledByFunc,
+    top,
+    type,
+    axes,
+    debug: {
+      parts: parts.map(p => ({ tag: p.tag, used: p.used })),
+      weights: parts.map(p => p.used),
+    }
+  };
+
+  // Report 段落
+  const { summary, table, narrative, recos } = Report.buildAll(mergedResult);
+
+  // 圖表資料
+  const labels = funcLabelsFromMeta(funcMeta);
+  const values = labeledByFunc.map(f => Math.round(f.pct));
+
+  root.innerHTML = `
+    <section class="res-header">
+      <h2>進階結果（綜合 32 題 + 進階 A/B/C）</h2>
+      <div class="head-actions">
+        <a class="btn" href="./quiz.html?mode=advanced">繼續進階作答</a>
+        <a class="btn ghost" href="./result_basic.html">回到初步結果</a>
+        <a class="btn" href="./index.html">回首頁</a>
+      </div>
+    </section>
+
+    ${buildSummaryHTML(summary)}
+
+    <section class="card" style="margin-bottom:12px">
+      <div class="muted">
+        加權依據各題組「有效作答題數」：${
+          parts.map(p => `${p.tag}：${p.used}`).join('，')
+        }
+      </div>
+    </section>
+
+    <section class="res-charts">
+      <div class="chart-wrap">
+        <canvas id="radar8"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="bars8"></canvas>
+      </div>
+    </section>
+
+    <section class="res-table card">
+      ${buildTableHTML(table)}
+    </section>
+
+    <section class="res-narrative card">
+      ${buildNarrativeHTML(narrative)}
+    </section>
+
+    <section class="res-reco card">
+      ${buildRecoHTML(recos)}
+    </section>
+  `;
+
+  drawRadar($('#radar8'), labels, values);
+  drawBars($('#bars8'), labels, values);
 }
 
-if (document.currentScript && document.readyState !== 'loading') {
-  initResultUI();
-} else {
-  document.addEventListener('DOMContentLoaded', () => initResultUI());
+/* ------------- tiny bootstrap for pages (optional) ------------- */
+export function bootRenderResultByPage() {
+  const p = (location.pathname.split('/').pop() || '').toLowerCase();
+  if (p === 'result_basic.html') renderBasicResult();
+  if (p === 'result_advanced.html') renderAdvancedResult();
 }
