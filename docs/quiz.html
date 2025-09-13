@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>作答中｜榮格八維自測</title>
-  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="./assets/css/style.css" />
   <meta name="robots" content="noindex" />
 </head>
 <body>
@@ -14,26 +14,23 @@
     </div>
   </noscript>
 
-  <!-- 你原本的頁面外觀可以靠 CSS 調整；下面這組 id 會被 render-quiz.js 自動接上 -->
+  <!-- Quiz Root：render-quiz.js 會自動把題目與進度渲染到這裡 -->
   <div id="quiz-root" class="quiz-root">
     <!-- Header -->
     <div class="quiz-header">
       <h2 id="qTitle">榮格八維自測｜作答中</h2>
-      <!-- 這裡可以放返回首頁、說明等按鈕 -->
       <div class="actions">
-        <a href="index.html" class="btn ghost">回首頁</a>
+        <a href="./index.html" class="btn ghost">回首頁</a>
       </div>
     </div>
 
     <!-- 題目區 -->
     <div class="quiz-qblock card">
       <div id="qText" class="question">題目載入中…</div>
-      <div id="answers" class="answers">
-        <!-- render-quiz.js 會把 1~5 的量表按鈕渲染進來，
-             並自動加上 .selected 樣式與點擊行為 -->
-      </div>
+      <div id="answers" class="answers"></div>
       <div class="muted" style="margin-top:10px">
-        鍵盤快速鍵：<kbd>1–5</kbd> 作答、<kbd>←</kbd>/<kbd>→</kbd> 上/下一題、<kbd>Backspace</kbd> 或 <kbd>R</kbd> 清除本題
+        鍵盤快速鍵：<kbd>1–5</kbd> 作答、<kbd>←</kbd>/<kbd>→</kbd> 上/下一題、
+        <kbd>Backspace</kbd> 或 <kbd>R</kbd> 清除本題
       </div>
     </div>
 
@@ -44,7 +41,7 @@
       <button id="btnNext" class="btn next primary">下一題 →</button>
     </div>
 
-    <!-- 進度 -->
+    <!-- 進度條 -->
     <div id="progress" class="quiz-progress">
       <div id="progressText" class="progress-text">0 / 0（0%）</div>
       <div class="progress-bar-wrap">
@@ -52,7 +49,7 @@
       </div>
     </div>
 
-    <!-- 完成 32 題後顯示的進階面板（由 JS 控制顯示/隱藏） -->
+    <!-- 完成 32 題後的進階面板 -->
     <div id="advPanel" class="quiz-adv-panel" style="display:none">
       <h3>想要更完整的 56 題結果嗎？</h3>
       <p class="muted">你可以選擇接續進階題組，或直接查看 32 題結果。</p>
@@ -65,9 +62,11 @@
     </div>
   </div>
 
-  <!-- （可選）pako：quiz 頁通常用不到，但提早載也可以，不影響功能 -->
-  <script src="assets/js/vendor/pako.min.js"></script>
-  <!-- 你的 bundle：包含 Router / QuizEngine / render-quiz.js（會自動初始化與綁定上面各 id） -->
-  <script defer src="assets/js/app.min.js"></script>
+  <!-- vendor 先載 -->
+  <script src="./assets/js/vendor/pako.min.js"></script>
+  <script src="./assets/js/vendor/chart.umd.js"></script>
+
+  <!-- bundle 最後載 -->
+  <script src="./assets/js/app.min.js"></script>
 </body>
 </html>
