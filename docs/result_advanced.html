@@ -4,16 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>進階結果｜榮格八維自測</title>
-  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="./assets/css/style.css" />
 </head>
 <body>
+  <!-- render-result.js 會把圖表與文案渲染進這個 root -->
   <div id="result-root"></div>
 
   <!-- 先載 Chart.js（本地檔） -->
-  <script src="assets/js/vendor/chart.umd.js"></script>
-  <!-- 再載 pako（gunzip 回退） -->
-  <script src="assets/js/vendor/pako.min.js"></script>
-  <!-- 最後載你的 bundle -->
-  <script defer src="assets/js/app.min.js"></script>
+  <script src="./assets/js/vendor/chart.umd.js"></script>
+  <!-- 再載 pako（gunzip 回退用） -->
+  <script src="./assets/js/vendor/pako.min.js"></script>
+  <!-- 最後載 bundle -->
+  <script src="./assets/js/app.min.js"></script>
 </body>
 </html>
