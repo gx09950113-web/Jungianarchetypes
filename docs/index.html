@@ -2,39 +2,25 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>榮格八維自測｜首頁</title>
   <link rel="stylesheet" href="assets/css/style.css" />
 </head>
-<body class="container">
-  <header class="header">
+<body>
+  <section class="hero">
     <h1>榮格八維自測</h1>
-    <p class="sub">兩層式測驗：先答 32 題取得八維傾向，再選擇是否進階 56 題。</p>
-  </header>
+    <p class="muted" id="buildInfo"></p>
+    <div class="actions">
+      <button id="btnStart32" class="btn primary">開始 32 題</button>
+      <button id="btnContinue" class="btn ghost">續上次測驗</button>
+      <button id="btnClearThisTab" class="btn danger ghost">清除此分頁作答</button>
+    </div>
+  </section>
+  <div class="container">
+    <p>兩層式測驗：先答 32 題取得八維傾向，再選擇是否進階 56 題。</p>
+  </div>
 
-  <main>
-    <section class="card">
-      <h2>測驗說明</h2>
-      <ul>
-        <li>題目為兩個情境的五點量表（偏 A ↔ 偏 B）。</li>
-        <li>第一階段 32 題結束後，可直接看結果或繼續進階 56 題。</li>
-        <li>本測驗採「盲測」：作答時不顯示功能名稱與配分。</li>
-      </ul>
-      <button id="startBtn" class="btn primary">開始測驗（32 題）</button>
-    </section>
-  </main>
-
-  <footer class="footer">
-    <small>© 2025 榮格八維自測網站</small>
-  </footer>
-
-  <script>
-    document.getElementById('startBtn').addEventListener('click', () => {
-      // 清空上一輪的作答（保留進階的答案不動）
-      localStorage.removeItem('basicAnswers');
-      localStorage.removeItem('basicMeta');
-      location.href = 'quiz.html?mode=basic';
-    });
-  </script>
+  <!-- 你的 bundle（index 不需要 Chart，但載了也無妨） -->
+  <script defer src="assets/js/app.min.js"></script>
 </body>
 </html>
