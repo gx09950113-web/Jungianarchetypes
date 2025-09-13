@@ -1,8 +1,8 @@
 /* =========================================
-   榮格八維自測：通用樣式
-   - 自動深淺色 (prefers-color-scheme)
-   - 流體排版、舒適留白
-   - 一致的按鈕/卡片/表格/進度條
+   榮格八維自測：通用樣式（2025-09-13 改良版）
+   - 自動深淺色、流體排版
+   - 量表置中、美化按鈕
+   - 16型配色徽章（NT紫 / NF綠 / SP黃 / SJ藍）
    ========================================= */
 
 :root {
@@ -20,6 +20,17 @@
   --radius: 16px;
   --shadow: 0 10px 30px rgba(2, 6, 23, 0.08);
   --shadow-sm: 0 4px 14px rgba(2, 6, 23, 0.06);
+
+  /* 量表強調 */
+  --scale-bg: var(--ghost);
+  --scale-bg-hover: #00000008;
+  --scale-ring: color-mix(in oklab, var(--accent) 55%, var(--border));
+
+  /* 16型配色（淺底） */
+  --nt-bg: #f3e8ff;  --nt-fg: #6b21a8;  --nt-bd: #d8b4fe;  /* 紫 NT */
+  --nf-bg: #e8f7ef;  --nf-fg: #1b8a5a;  --nf-bd: #b3ebcb;  /* 綠 NF */
+  --sp-bg: #fff7db;  --sp-fg: #a16207;  --sp-bd: #fde68a;  /* 黃 SP */
+  --sj-bg: #e6f0ff;  --sj-fg: #1e40af;  --sj-bd: #bfdbfe;  /* 藍 SJ */
 
   /* 排版 */
   --font: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
@@ -45,6 +56,12 @@
     --ghost: #ffffff15;
     --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
     --shadow-sm: 0 6px 16px rgba(0, 0, 0, 0.28);
+
+    /* 16型配色（深底微調） */
+    --nt-bg: #3b1e5b;  --nt-fg: #e9d5ff;  --nt-bd: #7c3aed;
+    --nf-bg: #0f2f22;  --nf-fg: #b7f5d2;  --nf-bd: #34d399;
+    --sp-bg: #3a3003;  --sp-fg: #fde68a;  --sp-bd: #facc15;
+    --sj-bg: #0e1e44;  --sj-fg: #bfdbfe;  --sj-bd: #60a5fa;
   }
 }
 
@@ -64,11 +81,7 @@ img, canvas { max-width: 100%; }
 a { color: var(--accent-600); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-.container {
-  width: var(--container);
-  margin-inline: auto;
-  padding: 24px 0 48px;
-}
+.container { width: var(--container); margin-inline: auto; padding: 24px 0 48px; }
 
 /* ===== Hero / Head ===== */
 .hero {
@@ -80,11 +93,7 @@ a:hover { text-decoration: underline; }
   background: var(--card);
   box-shadow: var(--shadow);
 }
-.hero h1 {
-  margin: 0 0 8px;
-  font-size: var(--size-hero);
-  letter-spacing: -0.02em;
-}
+.hero h1 { margin: 0 0 8px; font-size: var(--size-hero); letter-spacing: -0.02em; }
 .muted { color: var(--fg-muted); font-size: var(--size-sm); }
 .warn {
   padding: 16px;
@@ -98,7 +107,6 @@ a:hover { text-decoration: underline; }
   --btn-bg: #ffffff00;
   --btn-fg: var(--fg);
   --btn-bd: var(--border);
-
   appearance: none;
   border: 1px solid var(--btn-bd);
   background: var(--btn-bg);
@@ -113,26 +121,11 @@ a:hover { text-decoration: underline; }
 .btn:hover { transform: translateY(-1px); }
 .btn:active { transform: translateY(0); }
 .btn:focus-visible { outline: 3px solid color-mix(in oklab, var(--accent) 30%, transparent); outline-offset: 2px; }
+.btn.primary { --btn-bg: var(--accent-600); --btn-fg: white; --btn-bd: var(--accent-700); box-shadow: 0 8px 20px color-mix(in oklab, var(--accent) 35%, transparent); }
+.btn.ghost { --btn-bg: var(--ghost); --btn-bd: transparent; }
+.btn.danger { --btn-bg: color-mix(in oklab, var(--danger) 16%, transparent); --btn-bd: color-mix(in oklab, var(--danger) 60%, transparent); --btn-fg: color-mix(in oklab, var(--danger) 90%, var(--fg)); }
 
-.btn.primary {
-  --btn-bg: var(--accent-600);
-  --btn-fg: white;
-  --btn-bd: var(--accent-700);
-  box-shadow: 0 8px 20px color-mix(in oklab, var(--accent) 35%, transparent);
-}
-.btn.ghost {
-  --btn-bg: var(--ghost);
-  --btn-bd: transparent;
-}
-.btn.danger {
-  --btn-bg: color-mix(in oklab, var(--danger) 16%, transparent);
-  --btn-bd: color-mix(in oklab, var(--danger) 60%, transparent);
-  --btn-fg: color-mix(in oklab, var(--danger) 90%, var(--fg));
-}
-
-.actions, .head-actions, .adv-actions {
-  display: flex; flex-wrap: wrap; gap: 10px;
-}
+.actions, .head-actions, .adv-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 
 /* ===== Cards / Sections ===== */
 .card {
@@ -144,21 +137,15 @@ a:hover { text-decoration: underline; }
 }
 
 /* ===== Quiz Page ===== */
-.quiz-root,
-.result-root {
+.quiz-root, .result-root {
   width: var(--container);
   margin: 32px auto 48px;
   display: grid;
   gap: 16px;
 }
 
-.quiz-header {
-  display: flex; align-items: baseline; justify-content: space-between;
-  padding: 8px 4px;
-}
-.quiz-header h2 {
-  margin: 0; font-size: var(--size-h2); letter-spacing: -0.01em;
-}
+.quiz-header { display: flex; align-items: baseline; justify-content: space-between; padding: 8px 4px; }
+.quiz-header h2 { margin: 0; font-size: var(--size-h2); letter-spacing: -0.01em; }
 
 .quiz-qblock {
   border: 1px solid var(--border);
@@ -167,40 +154,53 @@ a:hover { text-decoration: underline; }
   padding: clamp(18px, 3vw, 26px);
   box-shadow: var(--shadow);
 }
-.question {
-  font-size: clamp(18px, 2.8vw, 22px);
-  font-weight: 600;
-  margin-bottom: 14px;
-  letter-spacing: 0.01em;
+.question { font-size: clamp(18px, 2.8vw, 22px); font-weight: 600; margin-bottom: 14px; letter-spacing: 0.01em; }
+
+/* === 量表容器：水平置中、美觀排版 === */
+.answers { /* fallback：若沒有 .scale-wrap 時，依然置中 */
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+.scale-wrap {                      /* JS 會包一層 .scale-wrap → 我們主要套這個 */
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;         /* 水平置中 */
+  align-items: stretch;
+  gap: 12px;
+  margin-top: 16px;
 }
 
-.answers {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-}
+/* === 量表按鈕 === */
 .scale-btn {
+  min-width: 120px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--ghost);
-  padding: 12px 10px;
+  border-radius: 14px;
+  background: var(--scale-bg);
   text-align: center;
   font-weight: 700;
+  line-height: 1.35;
   cursor: pointer;
-  transition: all .2s ease;
+  transition: transform .12s ease, box-shadow .2s ease, background .2s ease, border-color .2s ease;
+  box-shadow: 0 4px 12px rgba(2,6,23,.05);
 }
-.scale-btn:hover { transform: translateY(-1px); }
+.scale-btn .k { display: block; font-size: 11px; opacity: .7; margin-bottom: 4px; }
+.scale-btn .t { display: block; font-size: 14px; letter-spacing: .01em; }
+
+.scale-btn:hover { background: var(--scale-bg-hover); transform: translateY(-2px); }
+.scale-btn:active { transform: translateY(-1px); }
+
 .scale-btn.selected {
-  background: color-mix(in oklab, var(--accent) 20%, transparent);
-  border-color: color-mix(in oklab, var(--accent) 60%, var(--border));
-  box-shadow: 0 6px 18px color-mix(in oklab, var(--accent) 25%, transparent);
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+  border-color: var(--scale-ring);
+  box-shadow: 0 10px 24px color-mix(in oklab, var(--accent) 25%, transparent);
 }
 
-.quiz-nav {
-  display: flex; gap: 10px; justify-content: space-between; align-items: center;
-}
-.quiz-nav .btn.prev { min-width: 120px; }
-.quiz-nav .btn.next { min-width: 120px; }
+/* 導航與進度 */
+.quiz-nav { display: flex; gap: 10px; justify-content: space-between; align-items: center; }
+.quiz-nav .btn.prev, .quiz-nav .btn.next { min-width: 120px; }
 .quiz-nav .btn.clear { opacity: .9; }
 
 .quiz-progress {
@@ -234,10 +234,7 @@ a:hover { text-decoration: underline; }
 }
 
 /* ===== Result Page ===== */
-.res-header {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 6px 4px;
-}
+.res-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 6px 4px; }
 .res-header h2 { margin: 0; font-size: var(--size-h2); }
 
 .res-summary, .res-charts, .res-table, .res-narrative, .res-reco {
@@ -256,46 +253,50 @@ a:hover { text-decoration: underline; }
   margin-bottom: 12px;
 }
 
-/* ===== Tables (Function table) ===== */
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 15px;
+/* ===== Type Chips (16型顏色群組) ===== */
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  border: 1px solid transparent;
+  box-shadow: 0 6px 16px rgba(2,6,23,.08);
 }
-table thead th {
-  text-align: left;
-  color: var(--fg-muted);
-  font-weight: 700;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-}
-table tbody td {
-  padding: 10px 12px;
-  border-bottom: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-}
-table tbody tr:hover {
-  background: color-mix(in oklab, var(--accent) 6%, transparent);
-}
+.type-badge .tag { font-size: 12px; opacity: .8; }
+
+/* 群組：nt / nf / sp / sj */
+.type-badge.nt { background: var(--nt-bg); color: var(--nt-fg); border-color: var(--nt-bd); }
+.type-badge.nf { background: var(--nf-bg); color: var(--nf-fg); border-color: var(--nf-bd); }
+.type-badge.sp { background: var(--sp-bg); color: var(--sp-fg); border-color: var(--sp-bd); }
+.type-badge.sj { background: var(--sj-bg); color: var(--sj-fg); border-color: var(--sj-bd); }
+
+/* 16型別直指樣式（方便直接套 class="type-badge ENTP"） */
+.type-badge.ENTP,.type-badge.ENTJ,.type-badge.INTP,.type-badge.INTJ { background: var(--nt-bg); color: var(--nt-fg); border-color: var(--nt-bd); }
+.type-badge.ENFP,.type-badge.ENFJ,.type-badge.INFP,.type-badge.INFJ { background: var(--nf-bg); color: var(--nf-fg); border-color: var(--nf-bd); }
+.type-badge.ESTP,.type-badge.ESFP,.type-badge.ISTP,.type-badge.ISFP { background: var(--sp-bg); color: var(--sp-fg); border-color: var(--sp-bd); }
+.type-badge.ESFJ,.type-badge.ESTJ,.type-badge.ISFJ,.type-badge.ISTJ { background: var(--sj-bg); color: var(--sj-fg); border-color: var(--sj-bd); }
+
+/* ===== Tables ===== */
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+table thead th { text-align: left; color: var(--fg-muted); font-weight: 700; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+table tbody td { padding: 10px 12px; border-bottom: 1px solid color-mix(in oklab, var(--border) 80%, transparent); }
+table tbody tr:hover { background: color-mix(in oklab, var(--accent) 6%, transparent); }
 
 /* ===== Utilities ===== */
 #quiz-root, #result-root { padding-inline: clamp(10px, 4vw, 0); }
 .center { display: grid; place-items: center; }
 .hidden { display: none !important; }
+.badge { display: inline-grid; place-items: center; min-width: 20px; height: 20px; font-size: 12px; font-weight: 800; border-radius: 999px; background: color-mix(in oklab, var(--accent) 16%, transparent); color: var(--fg); }
 
-hr {
-  border: none; height: 1px; background: var(--border);
-  margin: 16px 0;
-}
+hr { border: none; height: 1px; background: var(--border); margin: 16px 0; }
 
-/* Headings in content sections */
-.report-summary h2,
-.report-type h3,
-.res-reco h3 {
-  margin-top: 0;
-}
+.report-summary h2, .report-type h3, .res-reco h3 { margin-top: 0; }
 .report-summary p { margin: 6px 0; }
 
-/* ===== Print (簡易) ===== */
+/* ===== Print ===== */
 @media print {
   .hero, .head-actions, .actions, .btn, #btnDLRadar, #btnDLBars { display: none !important; }
   body { background: #fff; }
@@ -304,7 +305,7 @@ hr {
 
 /* ===== Small screens ===== */
 @media (max-width: 640px) {
-  .answers { grid-template-columns: 1fr; }
+  .scale-btn { min-width: calc(50% - 6px); } /* 兩欄並排，仍置中 */
   .quiz-nav { flex-direction: column; align-items: stretch; gap: 8px; }
   .res-header { flex-direction: column; align-items: stretch; gap: 10px; }
 }
