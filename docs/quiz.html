@@ -5,188 +5,69 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>作答中｜榮格八維自測</title>
   <link rel="stylesheet" href="assets/css/style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/seedrandom@3.0.5/seedrandom.min.js"></script>
+  <meta name="robots" content="noindex" />
 </head>
-<body class="container">
-  <header class="header">
-    <h1 id="quizTitle">作答中</h1>
-    <p class="sub" id="quizSub">請依直覺選擇更符合你的選項。</p>
-  </header>
+<body>
+  <noscript>
+    <div class="warn" style="max-width:960px;margin:16px auto">
+      本頁需要啟用 JavaScript 才能進行測驗。
+    </div>
+  </noscript>
 
-  <main>
-    <section class="card">
-      <div class="progress">
-        <div id="bar" class="bar" style="width:0%"></div>
+  <!-- 你原本的頁面外觀可以靠 CSS 調整；下面這組 id 會被 render-quiz.js 自動接上 -->
+  <div id="quiz-root" class="quiz-root">
+    <!-- Header -->
+    <div class="quiz-header">
+      <h2 id="qTitle">榮格八維自測｜作答中</h2>
+      <!-- 這裡可以放返回首頁、說明等按鈕 -->
+      <div class="actions">
+        <a href="index.html" class="btn ghost">回首頁</a>
       </div>
-      <div id="qBox" class="qbox" aria-live="polite"></div>
+    </div>
 
-      <form id="form" class="form">
-        <div class="scale">
-          <label><input type="radio" name="choice" value="-2" required> 非常同意 A</label>
-          <label><input type="radio" name="choice" value="-1"> 較同意 A</label>
-          <label><input type="radio" name="choice" value="0"> 中立</label>
-          <label><input type="radio" name="choice" value="1"> 較同意 B</label>
-          <label><input type="radio" name="choice" value="2"> 非常同意 B</label>
-        </div>
+    <!-- 題目區 -->
+    <div class="quiz-qblock card">
+      <div id="qText" class="question">題目載入中…</div>
+      <div id="answers" class="answers">
+        <!-- render-quiz.js 會把 1~5 的量表按鈕渲染進來，
+             並自動加上 .selected 樣式與點擊行為 -->
+      </div>
+      <div class="muted" style="margin-top:10px">
+        鍵盤快速鍵：<kbd>1–5</kbd> 作答、<kbd>←</kbd>/<kbd>→</kbd> 上/下一題、<kbd>Backspace</kbd> 或 <kbd>R</kbd> 清除本題
+      </div>
+    </div>
 
-        <div class="actions">
-          <button type="button" id="prevBtn" class="btn">上一題</button>
-          <button type="submit" id="nextBtn" class="btn primary">下一題</button>
-        </div>
-      </form>
-    </section>
-  </main>
+    <!-- 導航按鈕 -->
+    <div class="quiz-nav">
+      <button id="btnPrev" class="btn prev">← 上一題</button>
+      <button id="btnClear" class="btn clear ghost">清除本題</button>
+      <button id="btnNext" class="btn next primary">下一題 →</button>
+    </div>
 
-  <footer class="footer">
-    <small id="footNote">盲測進行中</small>
-  </footer>
+    <!-- 進度 -->
+    <div id="progress" class="quiz-progress">
+      <div id="progressText" class="progress-text">0 / 0（0%）</div>
+      <div class="progress-bar-wrap">
+        <div id="progressBar" class="progress-bar" style="width:0%"></div>
+      </div>
+    </div>
 
-  <script>
-    // --- 小工具 ---
-    const qs = new URLSearchParams(location.search);
-    const mode = qs.get('mode') || 'basic'; // 'basic' (32題) 或 'advanced' (之後接 56 題)
-    const DATA_URL = mode === 'basic'
-      ? 'data/items_public_32.json'
-      : 'data/items_public_adv_A.json'; // 進階之後再串接 A→B→C
+    <!-- 完成 32 題後顯示的進階面板（由 JS 控制顯示/隱藏） -->
+    <div id="advPanel" class="quiz-adv-panel" style="display:none">
+      <h3>想要更完整的 56 題結果嗎？</h3>
+      <p class="muted">你可以選擇接續進階題組，或直接查看 32 題結果。</p>
+      <div class="adv-actions">
+        <button id="btnAdvA" class="btn ghost">進階 A 組</button>
+        <button id="btnAdvB" class="btn ghost">進階 B 組</button>
+        <button id="btnAdvC" class="btn ghost">進階 C 組</button>
+        <button id="btnSeeBasic" class="btn primary">直接看 32 題結果</button>
+      </div>
+    </div>
+  </div>
 
-    const stateKey = mode === 'basic' ? 'basicAnswers' : 'advAnswers';
-    const metaKey  = mode === 'basic' ? 'basicMeta'    : 'advMeta';
-
-    const titleMap = {
-      basic: '第一階段｜32 題（八維傾向）',
-      advanced: '第二階段｜進階分析'
-    };
-    document.getElementById('quizTitle').textContent = titleMap[mode];
-
-    // 固定亂數種子，讓使用者重整不致跳題序（簡易做法）
-    function seededShuffle(arr, seed) {
-      const a = arr.slice();
-      let m = a.length, t, i;
-      function rnd() {
-        seed = (seed * 9301 + 49297) % 233280;
-        return seed / 233280;
-      }
-      while (m) {
-        i = Math.floor(rnd() * m--);
-        t = a[m]; a[m] = a[i]; a[i] = t;
-      }
-      return a;
-    }
-
-    // --- 載入題庫 ---
-    let items = [];
-    let order = [];
-    let idx = 0;
-    let answers = []; // 存每題的 -2..2
-    const qBox = document.getElementById('qBox');
-    const bar  = document.getElementById('bar');
-    const form = document.getElementById('form');
-
-    init();
-
-    async function init() {
-      const res = await fetch(DATA_URL, { cache: 'no-store' });
-      items = await res.json();
-
-      // 建立題序
-      const seed = Date.now() % 1000000;
-      order = seededShuffle(items.map((_, i) => i), seed);
-
-      // 若有舊作答，回填
-      const saved = JSON.parse(localStorage.getItem(stateKey) || 'null');
-      const savedMeta = JSON.parse(localStorage.getItem(metaKey) || 'null');
-      if (saved && savedMeta && savedMeta.dataUrl === DATA_URL) {
-        answers = saved;
-        idx = Math.min(savedMeta.idx ?? 0, order.length - 1);
-      } else {
-        answers = new Array(items.length).fill(null);
-        idx = 0;
-      }
-
-      render();
-    }
-
-    function render() {
-      const i = order[idx];
-      const q = items[i]; // { id, stem, options: [A,B] }
-
-      qBox.innerHTML = `
-        <div class="qid">第 ${idx + 1} 題 / 共 ${items.length} 題</div>
-        <div class="stem">${escapeHtml(q.stem)}</div>
-        <div class="pair">
-          <div class="opt A"><span class="badge">A</span> ${escapeHtml(q.options[0])}</div>
-          <div class="opt B"><span class="badge">B</span> ${escapeHtml(q.options[1])}</div>
-        </div>
-      `;
-
-      // 回填勾選
-      const val = answers[i];
-      form.choice.forEach ? form.choice.forEach(r => r.checked = (Number(r.value) === val))
-                          : [...form.choice].forEach(r => r.checked = (Number(r.value) === val));
-
-      // 進度條
-      const done = answers.filter(v => v !== null).length;
-      bar.style.width = Math.round((done / items.length) * 100) + '%';
-
-      // 按鈕狀態
-      document.getElementById('prevBtn').disabled = (idx === 0);
-      document.getElementById('nextBtn').textContent = (idx === items.length - 1) ? '完成' : '下一題';
-    }
-
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const i = order[idx];
-      const v = Number((new FormData(form)).get('choice'));
-      if (Number.isNaN(v)) return;
-
-      answers[i] = v;
-      persist();
-
-      if (idx < items.length - 1) {
-        idx++;
-        // 清除單選（下一題需要）
-        form.reset();
-        render();
-      } else {
-        // 完成
-        if (mode === 'basic') {
-          // 讓使用者選：看結果 or 進階
-          const goAdvanced = confirm('32 題完成！\n按「確定」進入進階 56 題，按「取消」直接看結果。');
-          if (goAdvanced) {
-            location.href = 'quiz.html?mode=advanced';
-          } else {
-            location.href = 'result_basic.html';
-          }
-        } else {
-          // advanced（這一版先直接到進階結果）
-          location.href = 'result_advanced.html';
-        }
-      }
-    });
-
-    document.getElementById('prevBtn').addEventListener('click', () => {
-      if (idx > 0) {
-        idx--;
-        form.reset();
-        render();
-      }
-    });
-
-    function persist() {
-      localStorage.setItem(stateKey, JSON.stringify(answers));
-      localStorage.setItem(metaKey, JSON.stringify({
-        dataUrl: DATA_URL,
-        idx,
-        total: items.length,
-        ts: Date.now()
-      }));
-    }
-
-    function escapeHtml(s) {
-      return s.replace(/[&<>"']/g, c => ({
-        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-      }[c]));
-    }
-  </script>
+  <!-- （可選）pako：quiz 頁通常用不到，但提早載也可以，不影響功能 -->
+  <script src="assets/js/vendor/pako.min.js"></script>
+  <!-- 你的 bundle：包含 Router / QuizEngine / render-quiz.js（會自動初始化與綁定上面各 id） -->
+  <script defer src="assets/js/app.min.js"></script>
 </body>
 </html>
