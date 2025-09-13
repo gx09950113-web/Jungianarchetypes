@@ -1,13 +1,21 @@
 // src/app.js
 // Entry point – imports modules and wires up index page actions.
-// quiz.html / result_*.html 的初始化已在各自的 UI 模組中自啟動。
+// quiz.html / result_*.html 的初始化：
+// - render-quiz.js：內含自啟
+// - render-result.js：我們在這裡統一呼叫 bootRenderResultByPage() 以確保執行
 
-import { Router } from './core/router.js';
+let Router = null;
+try {
+  // 某些情況（例如簡化測試）可能沒有 Router；保護性載入
+  ({ Router } = await import('./core/router.js'));
+} catch {
+  // 沒有 Router 也不致命，只是首頁「開始/續上次」會退化
+  Router = null;
+}
 
-// 這兩個模組內含自動初始化（DOMContentLoaded 會自行執行）
-// 因此在 app.js 只需 import 讓它們進 bundle。
+// 這兩個模組會被 bundle，並且我們會在 boot() 內顯式啟動結果頁渲染
 import './ui/render-quiz.js';
-import './ui/render-result.js';
+import { bootRenderResultByPage } from './ui/render-result.js';
 
 // ---- 小工具 ----
 function $(sel) { return document.querySelector(sel); }
@@ -20,7 +28,8 @@ function pageFile() {
 // 嘗試抓取 build manifest（僅用於顯示版本與時間戳）
 async function fetchManifest() {
   try {
-    const res = await fetch('assets/js/weights.manifest.json', { cache: 'no-cache' });
+    const url = new URL('assets/js/weights.manifest.json', document.baseURI).href;
+    const res = await fetch(url, { cache: 'no-cache' });
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -34,13 +43,24 @@ async function initHome() {
   const verBox = $('#buildInfo');
   if (verBox) {
     const m = await fetchManifest();
-    if (m?.ts) verBox.textContent = `版號 v${m.version ?? 1}｜建置時間 ${new Date(m.ts).toLocaleString()}`;
+    if (m?.ts) {
+      const ts = new Date(m.ts);
+      verBox.textContent = `版號 v${m.version ?? 1}｜建置時間 ${ts.toLocaleString()}`;
+    }
   }
+
+  // 沒有 Router 的情況下：退化成直接跳連結
+  const hasRouter = !!Router?.ensureSession && !!Router?.go && !!Router?.current;
 
   // 按鈕：開始 32 題
   on($('#btnStart32'), 'click', () => {
-    const sess = Router.ensureSession({ mode: 'basic' });
-    Router.go('quiz', { mode: 'basic', sid: sess.sessionId });
+    if (hasRouter) {
+      const sess = Router.ensureSession({ mode: 'basic' });
+      Router.go('quiz', { mode: 'basic', sid: sess.sessionId });
+    } else {
+      // 退化：直接換頁
+      location.href = './quiz.html?mode=basic';
+    }
   });
 
   // 按鈕：續上次測驗（同分頁才有 sessionStorage）
@@ -53,10 +73,15 @@ async function initHome() {
     } else {
       btnContinue.disabled = false;
       on(btnContinue, 'click', () => {
-        // 沿用原本記錄的 mode（若沒有則 basic）
-        const s = Router.current().session || tryLoadSessionById(sid);
-        const mode = s?.mode || 'basic';
-        Router.go('quiz', { mode, sid });
+        if (hasRouter) {
+          // 沿用原本記錄的 mode（若沒有則 basic）
+          const s = Router.current().session || tryLoadSessionById(sid);
+          const mode = s?.mode || 'basic';
+          Router.go('quiz', { mode, sid });
+        } else {
+          // 退化：直接回 basic
+          location.href = './quiz.html?mode=basic';
+        }
       });
     }
   }
@@ -106,13 +131,14 @@ function boot() {
   const file = pageFile();
 
   // index.html：建首頁互動
-  if (/^index\.html$/i.test(file) || file === '' ) {
+  if (/^index\.html$/i.test(file) || file === '') {
     initHome();
-    return;
   }
 
-  // quiz.html、result_*.html 無需手動處理：
-  // - render-quiz.js 與 render-result.js 已在 DOMContentLoaded 自行初始化
+  // quiz.html、result_*.html：
+  // - render-quiz.js 內部會在 DOMContentLoaded 自啟
+  // - 結果頁我們顯式呼叫 bootRenderResultByPage() 確保渲染
+  bootRenderResultByPage();
 }
 
 // 等待 DOM
