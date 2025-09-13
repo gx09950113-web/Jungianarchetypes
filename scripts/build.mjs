@@ -2,18 +2,19 @@
 // Build pipeline for "榮格八維自測網站"
 // - Bundle src -> /docs/assets/js/app.min.js
 // - Read local weights & mapping -> gzip + XOR + base64 -> inject as runtime banner
-// - Expose window.__getWeights() for scorer.js to decode at runtime
+// - Expose window.__WEIGHTS_JSON / __FUNCS__ / __TYPES__ / __getWeights()
 
 import { build } from 'esbuild';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { randomBytes } from 'node:crypto';
 
 const ROOT = path.resolve(process.cwd());
 const OUT_DIR = path.join(ROOT, 'docs', 'assets', 'js');
 const OUT_FILE = path.join(OUT_DIR, 'app.min.js');
 
-const MODE = process.env.NODE_ENV?.toLowerCase() === 'development' ? 'development' : 'production';
+const MODE = (process.env.NODE_ENV?.toLowerCase() === 'development') ? 'development' : 'production';
 const IS_DEV = MODE === 'development';
 
 // ---- utils ----
@@ -23,11 +24,6 @@ async function ensureDir(p) {
 async function readJSON(p) {
   const buf = await fs.readFile(p);
   return JSON.parse(buf.toString('utf8'));
-}
-function toUint8(input) {
-  if (typeof input === 'string') return Buffer.from(input, 'utf8');
-  if (Buffer.isBuffer(input)) return input;
-  throw new TypeError('toUint8 expects string or Buffer');
 }
 function gzip(buf) {
   return zlib.gzipSync(buf);
@@ -42,7 +38,7 @@ function xorBytes(buf, keyBytes) {
 function b64(buf) {
   return Buffer.from(buf).toString('base64');
 }
-function chunkString(str, n = 128) {
+function chunkString(str, n = 256) {
   const arr = [];
   for (let i = 0; i < str.length; i += n) arr.push(str.slice(i, i + n));
   return arr;
@@ -69,6 +65,7 @@ async function loadLocalPayload() {
     readJSON(path.join(mappingDir, 'types.json')),
   ]);
 
+  // 給前端的總包（注意：仍是機密，已在前端以 gzip+XOR+b64 混淆）
   const payload = {
     version: 1,
     ts: new Date().toISOString(),
@@ -78,7 +75,10 @@ async function loadLocalPayload() {
       weights_adv_B: wB,
       weights_adv_C: wC,
     },
-    mapping: { funcs, types },
+    mapping: {
+      funcs, // ["Se","Si","Ne","Ni","Te","Ti","Fe","Fi"]
+      types, // 你的 MBTI 對照/解釋物件（report.js 會用）
+    },
   };
 
   return payload;
@@ -87,13 +87,13 @@ async function loadLocalPayload() {
 // ---- obfuscate payload ----
 function obfuscatePayload(payloadObj) {
   const json = JSON.stringify(payloadObj);
-  const gz = gzip(toUint8(json));
+  const gz = gzip(Buffer.from(json, 'utf8'));
 
   // 16-byte random key (fixed per build)
-  const key = crypto.getRandomValues(new Uint8Array(16));
-  const keyArr = Array.from(key);
+  const key = randomBytes(16);
+  const keyArr = Array.from(key.values());
 
-  const xored = xorBytes(gz, Buffer.from(key));
+  const xored = xorBytes(gz, key);
   const base64 = b64(xored);
 
   // 製造一點讀取干擾（分段）
@@ -108,88 +108,59 @@ function obfuscatePayload(payloadObj) {
 
 // ---- compose banner (injected before your bundle) ----
 function makeBanner(obf) {
-  // 不暴露關鍵字樣，包在 IIFE 與本地閉包中
+  // 這段會插在 bundle 最前面執行：
+  // - 同步使用 pako 解碼（請確保頁面於 app.min.js 之前已載入 pako.min.js）
+  // - 生成 window.__WEIGHTS_JSON / __FUNCS__ / __TYPES__ / __getWeights()
   return `
 /* weights blob injected at build-time */
 (() => {
+  // 混淆資料
   const parts = ${JSON.stringify(obf.parts)};
   const key = new Uint8Array(${JSON.stringify(obf.keyArr)});
   const total = ${JSON.stringify(obf.byteLen)};
 
+  // base64 -> Uint8Array
   function _b64ToBuf(b64) {
-    if (typeof atob === 'function') {
-      const bin = atob(b64);
-      const len = bin.length;
-      const out = new Uint8Array(len);
-      for (let i = 0; i < len; i++) out[i] = bin.charCodeAt(i);
-      return out;
-    } else {
-      // Node fallback (unlikely on client)
-      return Uint8Array.from(Buffer.from(b64, 'base64'));
-    }
+    const bin = atob(b64);
+    const len = bin.length;
+    const out = new Uint8Array(len);
+    for (let i = 0; i < len; i++) out[i] = bin.charCodeAt(i);
+    return out;
   }
-  function _concatStr(arr) {
-    // 微小混淆：在連接前做一個不起眼的 reduce
-    return arr.reduce((acc, s) => acc + s, '');
-  }
+  // XOR 還原
   function _xor(buf, key) {
     const out = new Uint8Array(buf.length);
     for (let i = 0; i < buf.length; i++) out[i] = buf[i] ^ key[i % key.length];
     return out;
   }
-  function _gunzip(buf) {
-    // Browser: use CompressionStream if可用，否則用 pako（若你想改）；
-    // 為了零依賴，這裡實作一個輕量 gunzip 方案：使用 Web Streams API
-    // 但 Safari 可能不支援，保留一個動態載入的回退（需你自行加 vendor/pako）
-    if (typeof DecompressionStream === 'function') {
-      const ds = new DecompressionStream('gzip');
-      const stream = new Blob([buf]).stream().pipeThrough(ds);
-      return new Response(stream).arrayBuffer();
-    }
-    // 回退：嘗試使用全域 pako（若你在 vendor 放了 pako）
-    if (typeof window !== 'undefined' && window.pako?.ungzip) {
-      return Promise.resolve(window.pako.ungzip(buf, { to: 'string' }));
-    }
-    // 最後回退：直接拋錯，並提示需要加 vendor/pako
-    return Promise.reject(new Error('No DecompressionStream and no pako. Add pako or use modern browsers.'));
-  }
 
-  let _cache = null;
-
-  async function __decodeWeights() {
-    if (_cache) return _cache;
-
-    // 1) 拼接 base64
-    const joined = _concatStr(parts);
-
-    // 2) base64 -> bytes
+  // 直接嘗試同步解碼（依賴 window.pako.ungzip）
+  try {
+    const joined = parts.join('');
     const xored = _b64ToBuf(joined);
-
-    // 3) XOR decode
     const zipped = _xor(xored, key);
-
     if (zipped.length !== total) {
       console.warn('[weights] byte length mismatch; got', zipped.length, 'expected', total);
     }
 
-    // 4) gunzip -> string
-    let raw;
-    const gunz = await _gunzip(zipped);
-    if (typeof gunz === 'string') {
-      raw = gunz;
-    } else {
-      raw = new TextDecoder().decode(new Uint8Array(gunz));
+    // 需要先載入 pako.min.js（在 HTML 中於 app.min.js 之前載入）
+    if (!window.pako || typeof window.pako.ungzip !== 'function') {
+      console.warn('[weights] pako not found; cannot decode weights now. Ensure pako.min.js is loaded before app.min.js');
+      return;
     }
 
-    // 5) parse JSON
-    _cache = JSON.parse(raw);
-    return _cache;
-  }
+    const jsonStr = window.pako.ungzip(zipped, { to: 'string' });
+    const obj = JSON.parse(jsonStr);
 
-  // 對外只暴露一個乾淨的 API
-  window.__getWeights = async () => {
-    return __decodeWeights();
-  };
+    // 對外暴露：同步可得
+    window.__WEIGHTS_JSON = obj;                 // { version, ts, weights:{...}, mapping:{ funcs, types } }
+    window.__FUNCS__ = obj?.mapping?.funcs || []; // ["Se","Si","Ne","Ni","Te","Ti","Fe","Fi"]
+    window.__TYPES__ = obj?.mapping?.types || {}; // MBTI 對照/解釋
+    window.__getWeights = function(){ return window.__WEIGHTS_JSON; }; // 與你現有 app.min.js 相容（同步）
+
+  } catch (e) {
+    console.error('[weights] decode failed:', e);
+  }
 })();
 `.trim();
 }
@@ -202,14 +173,14 @@ async function main() {
   const payload = await loadLocalPayload();
   const obf = obfuscatePayload(payload);
 
-  // 寫 manifest（可選，方便你看看版本/時間戳）
+  //（可選）寫 manifest 方便檢查版本/時間
   await fs.writeFile(
     path.join(OUT_DIR, 'weights.manifest.json'),
     JSON.stringify({ version: payload.version, ts: payload.ts, byteLen: obf.byteLen }, null, 2),
     'utf8'
   );
 
-  // esbuild 設定
+  // esbuild
   await build({
     entryPoints: [path.join(ROOT, 'src', 'app.js')],
     bundle: true,
@@ -219,10 +190,13 @@ async function main() {
     format: 'iife',
     platform: 'browser',
     outfile: OUT_FILE,
+
     // 把解碼器與 blob 放在 bundle 最前面
     banner: { js: makeBanner(obf) },
-    // 視你的使用方式調整 external（如果 Chart.js 走 <script> 載入全域，則保持 external）
+
+    // 若你的外部資源用 <script> 載入（Chart.js / pako），保持 empty
     external: [],
+
     define: {
       'process.env.NODE_ENV': JSON.stringify(MODE),
     },
