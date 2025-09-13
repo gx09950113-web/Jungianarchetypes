@@ -2,7 +2,8 @@
 // Build pipeline for "榮格八維自測網站"
 // - Bundle src -> /docs/assets/js/app.min.js
 // - Read local weights & mapping -> gzip + XOR + base64 -> inject as runtime banner
-// - Expose window.__WEIGHTS_JSON / __FUNCS__ / __TYPES__ / __getWeights()
+// - Expose window.__getWeights() (async), __getWeightsSync(), __WEIGHTS_JSON / __FUNCS__ / __TYPES__
+// - Normalize mapping.funcs into {list,keyToIndex,indexToKey} no matter your local format
 
 import { build } from 'esbuild';
 import fs from 'node:fs/promises';
@@ -17,7 +18,7 @@ const OUT_FILE = path.join(OUT_DIR, 'app.min.js');
 const MODE = (process.env.NODE_ENV?.toLowerCase() === 'development') ? 'development' : 'production';
 const IS_DEV = MODE === 'development';
 
-// ---- utils ----
+// ---------------- utils ----------------
 async function ensureDir(p) {
   await fs.mkdir(p, { recursive: true });
 }
@@ -44,7 +45,7 @@ function chunkString(str, n = 256) {
   return arr;
 }
 
-// ---- load local secrets (do NOT commit /local) ----
+// ---------------- load local secrets (do NOT commit /local) ----------------
 async function loadLocalPayload() {
   const weightsDir = path.join(ROOT, 'local', 'weights');
   const mappingDir = path.join(ROOT, 'local', 'mapping');
@@ -65,7 +66,34 @@ async function loadLocalPayload() {
     readJSON(path.join(mappingDir, 'types.json')),
   ]);
 
-  // 給前端的總包（注意：仍是機密，已在前端以 gzip+XOR+b64 混淆）
+  // 簡單標準化 funcs（避免前端再判斷陣列/物件）
+  // 支援：
+  // - ["Se","Si",...]
+  // - { list:[{key,name?,desc?}x8] }
+  // - { list:["Se","Si",...]} 也行
+  function normalizeFuncs(fx) {
+    let list = [];
+    if (Array.isArray(fx)) {
+      list = fx.map((k, i) => {
+        if (typeof k === 'string') return { idx: i, key: k, name: k, desc: '' };
+        if (k && typeof k === 'object') return { idx: i, key: k.key, name: k.name || k.key, desc: k.desc || '' };
+        return { idx: i, key: `f${i}`, name: `f${i}`, desc: '' };
+      });
+    } else if (fx && typeof fx === 'object' && Array.isArray(fx.list)) {
+      list = fx.list.map((it, i) => {
+        if (typeof it === 'string') return { idx: i, key: it, name: it, desc: '' };
+        return { idx: i, key: it.key, name: it.name || it.key, desc: it.desc || '' };
+      });
+    } else {
+      // fallback：固定順序
+      const def = ['Se','Si','Ne','Ni','Te','Ti','Fe','Fi'];
+      list = def.map((k, i) => ({ idx: i, key: k, name: k, desc: '' }));
+    }
+    const keyToIndex = Object.fromEntries(list.map((f, i) => [f.key, i]));
+    const indexToKey = Object.fromEntries(list.map((f, i) => [i, f.key]));
+    return { list, keyToIndex, indexToKey };
+  }
+
   const payload = {
     version: 1,
     ts: new Date().toISOString(),
@@ -76,15 +104,15 @@ async function loadLocalPayload() {
       weights_adv_C: wC,
     },
     mapping: {
-      funcs, // ["Se","Si","Ne","Ni","Te","Ti","Fe","Fi"]
-      types, // 你的 MBTI 對照/解釋物件（report.js 會用）
+      funcs: normalizeFuncs(funcs),
+      types, // 原樣保留（前端會處理 byPair/byDominant/rules/byCodeHint 等）
     },
   };
 
   return payload;
 }
 
-// ---- obfuscate payload ----
+// ---------------- obfuscate payload ----------------
 function obfuscatePayload(payloadObj) {
   const json = JSON.stringify(payloadObj);
   const gz = gzip(Buffer.from(json, 'utf8'));
@@ -106,66 +134,133 @@ function obfuscatePayload(payloadObj) {
   };
 }
 
-// ---- compose banner (injected before your bundle) ----
+// ---------------- compose banner (injected before your bundle) ----------------
 function makeBanner(obf) {
-  // 這段會插在 bundle 最前面執行：
-  // - 同步使用 pako 解碼（請確保頁面於 app.min.js 之前已載入 pako.min.js）
-  // - 生成 window.__WEIGHTS_JSON / __FUNCS__ / __TYPES__ / __getWeights()
   return `
 /* weights blob injected at build-time */
 (() => {
-  // 混淆資料
   const parts = ${JSON.stringify(obf.parts)};
   const key = new Uint8Array(${JSON.stringify(obf.keyArr)});
   const total = ${JSON.stringify(obf.byteLen)};
 
-  // base64 -> Uint8Array
+  let __cache = null;      // 解碼好的 JSON
+  let __decoding = null;   // 進行中的 Promise（避免重入）
+
+  // base64 -> Uint8Array（容錯 Node/老瀏覽器）
   function _b64ToBuf(b64) {
-    const bin = atob(b64);
-    const len = bin.length;
-    const out = new Uint8Array(len);
-    for (let i = 0; i < len; i++) out[i] = bin.charCodeAt(i);
-    return out;
+    if (typeof atob === 'function') {
+      const bin = atob(b64);
+      const len = bin.length;
+      const out = new Uint8Array(len);
+      for (let i = 0; i < len; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    // 極少見：沒有 atob（例如某些嵌入 WebView）
+    if (typeof Buffer !== 'undefined') {
+      return Uint8Array.from(Buffer.from(b64, 'base64'));
+    }
+    throw new Error('No base64 decoder available');
   }
-  // XOR 還原
   function _xor(buf, key) {
     const out = new Uint8Array(buf.length);
     for (let i = 0; i < buf.length; i++) out[i] = buf[i] ^ key[i % key.length];
     return out;
   }
 
-  // 直接嘗試同步解碼（依賴 window.pako.ungzip）
-  try {
-    const joined = parts.join('');
-    const xored = _b64ToBuf(joined);
-    const zipped = _xor(xored, key);
-    if (zipped.length !== total) {
-      console.warn('[weights] byte length mismatch; got', zipped.length, 'expected', total);
+  async function _gunzip(buf) {
+    // 1) 現代瀏覽器：DecompressionStream
+    if (typeof DecompressionStream === 'function') {
+      const ds = new DecompressionStream('gzip');
+      const stream = new Blob([buf]).stream().pipeThrough(ds);
+      const ab = await new Response(stream).arrayBuffer();
+      return new TextDecoder().decode(new Uint8Array(ab));
     }
-
-    // 需要先載入 pako.min.js（在 HTML 中於 app.min.js 之前載入）
-    if (!window.pako || typeof window.pako.ungzip !== 'function') {
-      console.warn('[weights] pako not found; cannot decode weights now. Ensure pako.min.js is loaded before app.min.js');
-      return;
+    // 2) 回退：pako（等它載入，如果此刻還沒載入，稍微輪詢一下）
+    const waitPako = async (ms = 800, step = 50) => {
+      const until = Date.now() + ms;
+      while (Date.now() < until) {
+        if (window.pako?.ungzip) return true;
+        await new Promise(r => setTimeout(r, step));
+      }
+      return !!(window.pako?.ungzip);
+    };
+    if (await waitPako()) {
+      return window.pako.ungzip(buf, { to: 'string' });
     }
-
-    const jsonStr = window.pako.ungzip(zipped, { to: 'string' });
-    const obj = JSON.parse(jsonStr);
-
-    // 對外暴露：同步可得
-    window.__WEIGHTS_JSON = obj;                 // { version, ts, weights:{...}, mapping:{ funcs, types } }
-    window.__FUNCS__ = obj?.mapping?.funcs || []; // ["Se","Si","Ne","Ni","Te","Ti","Fe","Fi"]
-    window.__TYPES__ = obj?.mapping?.types || {}; // MBTI 對照/解釋
-    window.__getWeights = function(){ return window.__WEIGHTS_JSON; }; // 與你現有 app.min.js 相容（同步）
-
-  } catch (e) {
-    console.error('[weights] decode failed:', e);
+    throw new Error('No DecompressionStream and no pako. Please load vendor/pako.min.js before app.min.js');
   }
+
+  async function _decodeOnce() {
+    if (__cache) return __cache;
+    if (__decoding) return __decoding;
+
+    __decoding = (async () => {
+      const joined = parts.join('');
+      const xored = _b64ToBuf(joined);
+      const zipped = _xor(xored, key);
+      if (zipped.length !== total) {
+        console.warn('[weights] byte length mismatch; got', zipped.length, 'expected', total);
+      }
+      const jsonStr = await _gunzip(zipped);
+      const obj = JSON.parse(jsonStr);
+
+      // 一致性：mapping.funcs 必須有 list/keyToIndex/indexToKey（守護一下）
+      const fx = obj?.mapping?.funcs;
+      if (!fx || !Array.isArray(fx.list) || !fx.keyToIndex || !fx.indexToKey) {
+        const def = ['Se','Si','Ne','Ni','Te','Ti','Fe','Fi'];
+        const list = (Array.isArray(fx?.list) ? fx.list : def).map((it, i) => {
+          if (typeof it === 'string') return { idx: i, key: it, name: it, desc: '' };
+          return { idx: i, key: it.key, name: it.name || it.key, desc: it.desc || '' };
+        });
+        obj.mapping = obj.mapping || {};
+        obj.mapping.funcs = {
+          list,
+          keyToIndex: Object.fromEntries(list.map((f,i) => [f.key, i])),
+          indexToKey: Object.fromEntries(list.map((f,i) => [i, f.key])),
+        };
+      }
+
+      __cache = obj;
+
+      // 對外同步欄位（有了才設）
+      window.__WEIGHTS_JSON = obj;
+      window.__FUNCS__ = obj?.mapping?.funcs || {};
+      window.__TYPES__ = obj?.mapping?.types || {};
+
+      // 派發 ready 事件（可選）
+      try { window.dispatchEvent(new CustomEvent('weights:ready')); } catch {}
+
+      return obj;
+    })();
+
+    return __decoding;
+  }
+
+  // 對外 API
+  window.__getWeights = async () => {
+    if (__cache) return __cache;
+    return _decodeOnce();
+  };
+  window.__getWeightsSync = () => {
+    if (!__cache) throw new Error('__WEIGHTS_JSON not ready yet; call __getWeights() first.');
+    return __cache;
+  };
+
+  // 方便舊程式碼：若一切就緒（例如 pako 已先載，且同步可 gunzip），立刻解一次
+  // 失敗也無妨，之後呼叫 __getWeights() 仍會再試
+  (async () => {
+    try {
+      await _decodeOnce();
+    } catch (e) {
+      // 許多行動瀏覽器此時 pako 還沒載入，這裡容忍失敗，不噴錯
+      console.info('[weights] will decode lazily later:', e?.message || e);
+    }
+  })();
 })();
 `.trim();
 }
 
-// ---- main build ----
+// ---------------- main build ----------------
 async function main() {
   console.log(`[build] mode=${MODE}`);
   await ensureDir(OUT_DIR);
@@ -173,14 +268,13 @@ async function main() {
   const payload = await loadLocalPayload();
   const obf = obfuscatePayload(payload);
 
-  //（可選）寫 manifest 方便檢查版本/時間
+  // manifest（可選）
   await fs.writeFile(
     path.join(OUT_DIR, 'weights.manifest.json'),
     JSON.stringify({ version: payload.version, ts: payload.ts, byteLen: obf.byteLen }, null, 2),
     'utf8'
   );
 
-  // esbuild
   await build({
     entryPoints: [path.join(ROOT, 'src', 'app.js')],
     bundle: true,
@@ -190,13 +284,8 @@ async function main() {
     format: 'iife',
     platform: 'browser',
     outfile: OUT_FILE,
-
-    // 把解碼器與 blob 放在 bundle 最前面
     banner: { js: makeBanner(obf) },
-
-    // 若你的外部資源用 <script> 載入（Chart.js / pako），保持 empty
     external: [],
-
     define: {
       'process.env.NODE_ENV': JSON.stringify(MODE),
     },
