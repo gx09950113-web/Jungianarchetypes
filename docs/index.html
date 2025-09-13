@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>榮格八維自測｜首頁</title>
-  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="./assets/css/style.css" />
 </head>
 <body>
   <section class="hero">
@@ -20,7 +20,11 @@
     <p>兩層式測驗：先答 32 題取得八維傾向，再選擇是否進階 56 題。</p>
   </div>
 
-  <!-- 你的 bundle（index 不需要 Chart，但載了也無妨） -->
-  <script defer src="assets/js/app.min.js"></script>
+  <!-- vendor 先載 -->
+  <script src="./assets/js/vendor/pako.min.js"></script>
+  <script src="./assets/js/vendor/chart.umd.js"></script>
+
+  <!-- bundle 最後載 -->
+  <script src="./assets/js/app.min.js"></script>
 </body>
 </html>
