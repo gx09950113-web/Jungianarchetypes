@@ -1,0 +1,98 @@
+{
+  "0": {
+    "code": "Si",
+    "label_zh": "內向感覺",
+    "label_en": "Introverted Sensing",
+    "brief": "以過往經驗校準現在，重視熟悉與可靠。",
+    "desc": "傾向用記憶、經驗與既定標準來理解當下；追求穩定、可預期與細節一致。遇到變動時會先尋找與既往的對應關係。",
+    "attitudes": "introverted",
+    "domain": "perceiving",
+    "axis": "S",
+    "color": "#6AA3FF",
+    "keywords": ["記憶", "細節", "穩定", "規範", "既往資料"]
+  },
+  "1": {
+    "code": "Se",
+    "label_zh": "外向感覺",
+    "label_en": "Extraverted Sensing",
+    "brief": "敏銳當下的真實刺激，動手即時調整。",
+    "desc": "專注於此刻的感官線索與環境變化；偏好直接體驗、快速反應與實作修正。容易把握現場機會與臨場表現。",
+    "attitudes": "extraverted",
+    "domain": "perceiving",
+    "axis": "S",
+    "color": "#4DD0E1",
+    "keywords": ["當下", "行動", "臨場", "手感", "第一手資訊"]
+  },
+  "2": {
+    "code": "Ni",
+    "label_zh": "內向直覺",
+    "label_en": "Introverted Intuition",
+    "brief": "收斂線索成單一洞見，聚焦長期走向。",
+    "desc": "從零散訊息中擷取核心模式，形成內在圖像與趨勢預期；偏好由深層含義統整全局，做長期導向的判斷。",
+    "attitudes": "introverted",
+    "domain": "perceiving",
+    "axis": "N",
+    "color": "#B388FF",
+    "keywords": ["洞見", "趨勢", "本質", "收斂", "隱喻"]
+  },
+  "3": {
+    "code": "Ne",
+    "label_zh": "外向直覺",
+    "label_en": "Extraverted Intuition",
+    "brief": "發散連結多種可能，善於點子生成。",
+    "desc": "對事物之間的關聯與可能性高度敏感；喜歡腦力激盪、跨域聯想與嘗試不同路徑，偏向開放探索。",
+    "attitudes": "extraverted",
+    "domain": "perceiving",
+    "axis": "N",
+    "color": "#81C784",
+    "keywords": ["可能性", "聯想", "創意", "試驗", "多線發展"]
+  },
+  "4": {
+    "code": "Ti",
+    "label_zh": "內向思考",
+    "label_en": "Introverted Thinking",
+    "brief": "追求邏輯自洽與概念嚴謹，先正確再行動。",
+    "desc": "關注定義、結構與原理是否一致；傾向形成可解釋的內在模型，再據此推導結論與行動。",
+    "attitudes": "introverted",
+    "domain": "judging",
+    "axis": "T",
+    "color": "#64B5F6",
+    "keywords": ["邏輯", "模型", "原理", "精確", "自洽"]
+  },
+  "5": {
+    "code": "Te",
+    "label_zh": "外向思考",
+    "label_en": "Extraverted Thinking",
+    "brief": "以目標與指標導向，強調效率與落地。",
+    "desc": "偏好以客觀標準與流程來組織資源；重視可執行性、時程與成果，以實證與效益推動決策。",
+    "attitudes": "extraverted",
+    "domain": "judging",
+    "axis": "T",
+    "color": "#FFB74D",
+    "keywords": ["效率", "流程", "指標", "落地", "管理"]
+  },
+  "6": {
+    "code": "Fi",
+    "label_zh": "內向情感",
+    "label_en": "Introverted Feeling",
+    "brief": "依內在價值評斷對錯，追求真誠一致。",
+    "desc": "以個人信念與情感真實作為判準；重視自我一致與邊界，願為價值承擔成本與少數立場。",
+    "attitudes": "introverted",
+    "domain": "judging",
+    "axis": "F",
+    "color": "#E57373",
+    "keywords": ["價值", "真誠", "邊界", "良知", "自我一致"]
+  },
+  "7": {
+    "code": "Fe",
+    "label_zh": "外向情感",
+    "label_en": "Extraverted Feeling",
+    "brief": "調節人際與群體氛圍，追求共識與關照。",
+    "desc": "敏感他人需求與情境期望；善於溝通協調與建構共識，促進關係和諧與合作運作。",
+    "attitudes": "extraverted",
+    "domain": "judging",
+    "axis": "F",
+    "color": "#F06292",
+    "keywords": ["共情", "和諧", "協調", "共識", "照顧"]
+  }
+}
