@@ -1,8 +1,9 @@
 /* =========================================
    榮格八維自測：通用樣式（2025-09-13 改良版）
    - 自動深淺色、流體排版
-   - 量表置中、美化按鈕
+   - A/B 固定卡片 + 置中量表
    - 16型配色徽章（NT紫 / NF綠 / SP黃 / SJ藍）
+   - 行動裝置捲動體驗修正
    ========================================= */
 
 :root {
@@ -67,7 +68,9 @@
 
 /* ===== Reset-ish ===== */
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+
+/* ⚠️ 改為 min-height，避免行動裝置因 100%/100vh 受工具列影響而卡住 */
+html, body { min-height: 100%; height: auto; }
 body {
   margin: 0;
   font-family: var(--font);
@@ -75,6 +78,10 @@ body {
   background: radial-gradient(1200px 600px at 80% -10%, var(--accent-50), transparent 60%), var(--bg);
   line-height: 1.6;
   font-size: var(--size-base);
+
+  /* 行動裝置慣性捲動 & 安全區 */
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
 }
 
 img, canvas { max-width: 100%; }
@@ -156,20 +163,50 @@ a:hover { text-decoration: underline; }
 }
 .question { font-size: clamp(18px, 2.8vw, 22px); font-weight: 600; margin-bottom: 14px; letter-spacing: 0.01em; }
 
+/* === A/B 固定卡片（不可點） === */
+.pair-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0 4px;
+}
+.pair-card {
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--fg-muted) 6%, transparent), transparent 60%), var(--card);
+  border-radius: 14px;
+  padding: 12px;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;            /* 不可點 */
+  user-select: text;               /* 可複製文字 */
+}
+.pair-card .title {
+  display: inline-grid; place-items: center;
+  width: 22px; height: 22px;
+  font-size: 12px; font-weight: 800; border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  color: var(--fg);
+  margin-right: 8px;
+}
+.pair-card p { margin: 0; }
+
 /* === 量表容器：水平置中、美觀排版 === */
 .answers { /* fallback：若沒有 .scale-wrap 時，依然置中 */
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 12px;
+  margin-top: 12px;
 }
-.scale-wrap {                      /* JS 會包一層 .scale-wrap → 我們主要套這個 */
+.scale-wrap {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;         /* 水平置中 */
   align-items: stretch;
   gap: 12px;
-  margin-top: 16px;
+  margin-top: 8px;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* === 量表按鈕 === */
@@ -287,6 +324,9 @@ table tbody tr:hover { background: color-mix(in oklab, var(--accent) 6%, transpa
 
 /* ===== Utilities ===== */
 #quiz-root, #result-root { padding-inline: clamp(10px, 4vw, 0); }
+/* 增加底部安全間距，避免遇到底部工具列時無法再往下滑 */
+#quiz-root { padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px)); }
+
 .center { display: grid; place-items: center; }
 .hidden { display: none !important; }
 .badge { display: inline-grid; place-items: center; min-width: 20px; height: 20px; font-size: 12px; font-weight: 800; border-radius: 999px; background: color-mix(in oklab, var(--accent) 16%, transparent); color: var(--fg); }
@@ -305,7 +345,8 @@ hr { border: none; height: 1px; background: var(--border); margin: 16px 0; }
 
 /* ===== Small screens ===== */
 @media (max-width: 640px) {
-  .scale-btn { min-width: calc(50% - 6px); } /* 兩欄並排，仍置中 */
+  .pair-cards { grid-template-columns: 1fr; }  /* A / B 疊放 */
+  .scale-btn { min-width: calc(50% - 6px); }  /* 兩欄並排，仍置中 */
   .quiz-nav { flex-direction: column; align-items: stretch; gap: 8px; }
   .res-header { flex-direction: column; align-items: stretch; gap: 10px; }
 }
