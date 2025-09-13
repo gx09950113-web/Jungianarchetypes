@@ -5,46 +5,15 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>進階結果｜榮格八維自測</title>
   <link rel="stylesheet" href="assets/css/style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
-<body class="container">
-  <header class="header">
-    <h1>進階結果（56 題）</h1>
-    <p class="sub">這裡將呈現主輔功能組合與四大氣質。先顯示完成狀態。</p>
-  </header>
+<body>
+  <div id="result-root"></div>
 
-  <main>
-    <section class="card">
-      <h2>完成狀態</h2>
-      <ul id="status"></ul>
-      <div class="actions">
-        <a class="btn ghost" href="index.html">回首頁</a>
-      </div>
-    </section>
-  </main>
-
-  <footer class="footer">
-    <small>之後會加入完整的雷達圖與長條圖。</small>
-  </footer>
-
-  <script>
-    const s = document.getElementById('status');
-    const rows = [];
-
-    const basic = JSON.parse(localStorage.getItem('basicAnswers') || 'null');
-    rows.push(`<li>32 題（八維傾向）：${basic ? '✅ 已完成' : '❌ 未完成'}</li>`);
-
-    const adv = JSON.parse(localStorage.getItem('advAnswers') || 'null');
-    // 之後 advAnswers 結構可以是 {A: [...], B: [...], C: [...]}
-    if (adv && typeof adv === 'object') {
-      rows.push(`<li>進階 A（主外-輔內 24 題）：${adv.A ? '✅' : '❌'}</li>`);
-      rows.push(`<li>進階 B（主內-輔外 24 題）：${adv.B ? '✅' : '❌'}</li>`);
-      rows.push(`<li>進階 C（SJ/SP/NT/NF 8 題）：${adv.C ? '✅' : '❌'}</li>`);
-    } else {
-      rows.push('<li>進階題組：❌ 未開始</li>');
-    }
-
-    s.innerHTML = rows.join('');
-  </script>
+  <!-- 先載 Chart.js（本地檔） -->
+  <script src="assets/js/vendor/chart.umd.js"></script>
+  <!-- 再載 pako（gunzip 回退） -->
+  <script src="assets/js/vendor/pako.min.js"></script>
+  <!-- 最後載你的 bundle -->
+  <script defer src="assets/js/app.min.js"></script>
 </body>
 </html>
