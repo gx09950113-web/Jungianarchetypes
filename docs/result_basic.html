@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>初步結果｜榮格八維自測</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <!-- 先用 CDN；之後可改成本地檔 docs/assets/js/vendor/chart.umd.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body class="container">
+  <header class="header">
+    <h1>初步結果（32 題）</h1>
+    <p class="sub">目前顯示的是「作答分布」。正式八維分數將在 scoring 接上後呈現。</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <canvas id="distChart" height="140"></canvas>
+      <div class="actions" style="margin-top:16px">
+        <a class="btn" href="quiz.html?mode=advanced">進階 56 題</a>
+        <button id="exportBtn" class="btn">匯出作答（JSON）</button>
+        <a class="btn ghost" href="index.html">回首頁</a>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>接下來會發生什麼？</h2>
+      <ol>
+        <li>你的 32 題作答已存於本機（localStorage）。</li>
+        <li>完成進階 56 題後，將合併輸出完整報告。</li>
+        <li>之後我們會在本頁接上「八維雷達圖」與「初步型別推測」。</li>
+      </ol>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <small>資料僅保存在你的瀏覽器，不會上傳伺服器。</small>
+  </footer>
+
+  <script>
+    const answers = JSON.parse(localStorage.getItem('basicAnswers') || 'null');
+    if (!answers) {
+      alert('找不到 32 題的作答紀錄，請先完成測驗。');
+      location.href = 'quiz.html?mode=basic';
+    }
+
+    // 計算 -2 .. 2 的分布
+    const dist = { '-2':0, '-1':0, '0':0, '1':0, '2':0 };
+    answers.forEach(v => { if (v !== null) dist[v]++; });
+
+    const ctx = document.getElementById('distChart').getContext('2d');
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ['非常同意A', '較同意A', '中立', '較同意B', '非常同意B'],
+        datasets: [{
+          label: '作答分布（題數）',
+          data: [dist['-2'], dist['-1'], dist['0'], dist['1'], dist['2']]
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { precision:0 } } }
+      }
+    });
+
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(answers, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'basicAnswers.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>

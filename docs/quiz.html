@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>作答中｜榮格八維自測</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body class="container">
+  <header class="header">
+    <h1 id="quizTitle">作答中</h1>
+    <p class="sub" id="quizSub">請依直覺選擇更符合你的選項。</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <div class="progress">
+        <div id="bar" class="bar" style="width:0%"></div>
+      </div>
+      <div id="qBox" class="qbox" aria-live="polite"></div>
+
+      <form id="form" class="form">
+        <div class="scale">
+          <label><input type="radio" name="choice" value="-2" required> 非常同意 A</label>
+          <label><input type="radio" name="choice" value="-1"> 較同意 A</label>
+          <label><input type="radio" name="choice" value="0"> 中立</label>
+          <label><input type="radio" name="choice" value="1"> 較同意 B</label>
+          <label><input type="radio" name="choice" value="2"> 非常同意 B</label>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="prevBtn" class="btn">上一題</button>
+          <button type="submit" id="nextBtn" class="btn primary">下一題</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <small id="footNote">盲測進行中</small>
+  </footer>
+
+  <script>
+    // --- 小工具 ---
+    const qs = new URLSearchParams(location.search);
+    const mode = qs.get('mode') || 'basic'; // 'basic' (32題) 或 'advanced' (之後接 56 題)
+    const DATA_URL = mode === 'basic'
+      ? 'data/items_public_32.json'
+      : 'data/items_public_adv_A.json'; // 進階之後再串接 A→B→C
+
+    const stateKey = mode === 'basic' ? 'basicAnswers' : 'advAnswers';
+    const metaKey  = mode === 'basic' ? 'basicMeta'    : 'advMeta';
+
+    const titleMap = {
+      basic: '第一階段｜32 題（八維傾向）',
+      advanced: '第二階段｜進階分析'
+    };
+    document.getElementById('quizTitle').textContent = titleMap[mode];
+
+    // 固定亂數種子，讓使用者重整不致跳題序（簡易做法）
+    function seededShuffle(arr, seed) {
+      const a = arr.slice();
+      let m = a.length, t, i;
+      function rnd() {
+        seed = (seed * 9301 + 49297) % 233280;
+        return seed / 233280;
+      }
+      while (m) {
+        i = Math.floor(rnd() * m--);
+        t = a[m]; a[m] = a[i]; a[i] = t;
+      }
+      return a;
+    }
+
+    // --- 載入題庫 ---
+    let items = [];
+    let order = [];
+    let idx = 0;
+    let answers = []; // 存每題的 -2..2
+    const qBox = document.getElementById('qBox');
+    const bar  = document.getElementById('bar');
+    const form = document.getElementById('form');
+
+    init();
+
+    async function init() {
+      const res = await fetch(DATA_URL, { cache: 'no-store' });
+      items = await res.json();
+
+      // 建立題序
+      const seed = Date.now() % 1000000;
+      order = seededShuffle(items.map((_, i) => i), seed);
+
+      // 若有舊作答，回填
+      const saved = JSON.parse(localStorage.getItem(stateKey) || 'null');
+      const savedMeta = JSON.parse(localStorage.getItem(metaKey) || 'null');
+      if (saved && savedMeta && savedMeta.dataUrl === DATA_URL) {
+        answers = saved;
+        idx = Math.min(savedMeta.idx ?? 0, order.length - 1);
+      } else {
+        answers = new Array(items.length).fill(null);
+        idx = 0;
+      }
+
+      render();
+    }
+
+    function render() {
+      const i = order[idx];
+      const q = items[i]; // { id, stem, options: [A,B] }
+
+      qBox.innerHTML = `
+        <div class="qid">第 ${idx + 1} 題 / 共 ${items.length} 題</div>
+        <div class="stem">${escapeHtml(q.stem)}</div>
+        <div class="pair">
+          <div class="opt A"><span class="badge">A</span> ${escapeHtml(q.options[0])}</div>
+          <div class="opt B"><span class="badge">B</span> ${escapeHtml(q.options[1])}</div>
+        </div>
+      `;
+
+      // 回填勾選
+      const val = answers[i];
+      form.choice.forEach ? form.choice.forEach(r => r.checked = (Number(r.value) === val))
+                          : [...form.choice].forEach(r => r.checked = (Number(r.value) === val));
+
+      // 進度條
+      const done = answers.filter(v => v !== null).length;
+      bar.style.width = Math.round((done / items.length) * 100) + '%';
+
+      // 按鈕狀態
+      document.getElementById('prevBtn').disabled = (idx === 0);
+      document.getElementById('nextBtn').textContent = (idx === items.length - 1) ? '完成' : '下一題';
+    }
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const i = order[idx];
+      const v = Number((new FormData(form)).get('choice'));
+      if (Number.isNaN(v)) return;
+
+      answers[i] = v;
+      persist();
+
+      if (idx < items.length - 1) {
+        idx++;
+        // 清除單選（下一題需要）
+        form.reset();
+        render();
+      } else {
+        // 完成
+        if (mode === 'basic') {
+          // 讓使用者選：看結果 or 進階
+          const goAdvanced = confirm('32 題完成！\n按「確定」進入進階 56 題，按「取消」直接看結果。');
+          if (goAdvanced) {
+            location.href = 'quiz.html?mode=advanced';
+          } else {
+            location.href = 'result_basic.html';
+          }
+        } else {
+          // advanced（這一版先直接到進階結果）
+          location.href = 'result_advanced.html';
+        }
+      }
+    });
+
+    document.getElementById('prevBtn').addEventListener('click', () => {
+      if (idx > 0) {
+        idx--;
+        form.reset();
+        render();
+      }
+    });
+
+    function persist() {
+      localStorage.setItem(stateKey, JSON.stringify(answers));
+      localStorage.setItem(metaKey, JSON.stringify({
+        dataUrl: DATA_URL,
+        idx,
+        total: items.length,
+        ts: Date.now()
+      }));
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]));
+    }
+  </script>
+</body>
+</html>
